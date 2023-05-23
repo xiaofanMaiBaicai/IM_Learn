@@ -1,0 +1,176 @@
+IM 客户端的基本要做的4件事
+1 创建socket
+2 客户端向服务器发起请求 connect
+3 建立连接以后，通过send或receive向服务端发送或接收数据
+4 close关闭连接
+
+以下是基于 ios 原生 #import <sys/socket.h> 做的socket开发
+
+1 创建一个socket
+
+static int CreateClinetSocket(void) {
+    int clinetSocket = 0;
+    clinetSocket = socket(AF_INET, SOCK_STREAM, 0);
+    return clinetSocket;
+}
+
+关键字解读：
+
+第一个参数：
+AF_INET
+AF_INET 是一个常量，用于表示网络地址族（Address Family），特别是 IPv4 地址族。在 C 语言的网络编程中，AF_INET 通常用于指定套接字（socket）的地址族。
+AF_INET 是 Address Family Internet 的缩写，它指定了使用 IPv4 地址的网络通信。IPv4 是互联网协议版本 4（Internet Protocol version 4）的简称，它使用 32 位的地址来标识网络上的设备。
+
+AF_INET6
+AF_INET6 是一个常量，用于表示网络地址族（Address Family），特别是 IPv6 地址族。在 C 语言的网络编程中，AF_INET6 通常用于指定套接字（socket）的地址族。
+AF_INET6 是 Address Family Internet Protocol version 6 的缩写，它指定了使用 IPv6 地址的网络通信。IPv6 是互联网协议版本 6（Internet Protocol version 6）的简称，它使用 128 位的地址来标识网络上的设备。
+
+第二个参数
+SOCK_STREAM
+SOCK_STREAM 是在网络编程中用于创建套接字（socket）时指定的一种类型。它表示创建的套接字是基于流（stream）的，提供可靠的、面向连接的、双向的字节流通信。
+当使用 SOCK_STREAM 类型创建套接字时，数据将以字节流的形式进行传输，确保数据的可靠性和有序性。这种类型的套接字使用传输控制协议（TCP）来提供可靠的连接，并提供面向连接的通信，类似于在两个端点之间建立的虚拟电路。
+流套接字适用于那些需要可靠、有序、面向连接的数据传输的场景，如传输文件、发送大量数据或需要确保数据的完整性的通信。它可以提供可靠性和错误检测，但可能会引入一定的延迟和开销。
+
+SOCK_DGRAM
+SOCK_DGRAM 是在网络编程中用于创建套接字（socket）时指定的一种类型。它表示创建的套接字是基于数据报（datagram）的，提供无连接、不可靠的数据传输。
+当使用 SOCK_DGRAM 类型创建套接字时，数据将以数据报的形式进行传输，不保证数据的可靠性和有序性。每个数据报都是独立的，可以独立地发送和接收，不依赖于之前或之后的数据报。
+数据报套接字适用于那些对数据传输的实时性要求较高、不需要可靠性的场景。它提供了低延迟的传输方式，但不保证数据的可靠性和传输的顺序。这种类型的套接字适用于实时音频/视频传输、域间路由协议（如UDP）、DNS 查询等场景。
+
+第三个参数
+protocol
+
+常见的协议类型包括：
+0 或 IPPROTO_IP：通用的 IP 协议。
+IPPROTO_TCP：传输控制协议（TCP），用于可靠的、面向连接的数据传输。
+IPPROTO_UDP：用户数据报协议（UDP），用于无连接的、不可靠的数据传输。
+IPPROTO_SCTP：流控制传输协议（SCTP），用于多流的、可靠的数据传输。
+IPPROTO_ICMP：Internet 控制消息协议（ICMP），用于网络错误和状态信息的传输。
+
+当创建套接字时，可以根据需要选择合适的协议类型。如果不确定要使用哪个协议类型，可以传递 0 或使用默认值，这将根据套接字类型和地址族自动选择合适的协议。
+需要注意的是，某些情况下，传递错误的协议类型可能导致套接字创建失败。因此，在选择协议类型时，应根据具体需求和使用的网络协议来选择合适的值。
+
+2 向服务器发起链接 connect 会阻塞当前线程
+
+CreateClinetSocket方法中创建的本地 clientSockte
+server_ip 要链接的ip地址
+unsigned short port 端口号
+unsigned short ：是一种 C/C++ 中的数据类型，用于表示无符号的短整数。它通常占用 2 个字节（16 位），范围从 0 到 65,535
+
+static int ConnectToServer(int clientSockte, const char *server_ip, unsigned short port) {
+    // 创建一个地址结构体
+    struct sockaddr_in sAddr={0};
+    // sin_family 网络地址族
+    sAddr.sin_family = AF_INET;
+    // 将字符串的ip地址转成32位的网络序列IP地址
+    inet_aton(server_ip, &sAddr.sin_addr);
+    //整型变量从主机字节顺序转变成网络字节顺序，赋值端口号
+    sAddr.sin_port = htons(port);
+    // 发起链接 0 为成功 , -1 为失败，此接口会阻塞当前线程
+    if (connect(clientSockte, (struct sockaddr *)&sAddr, sizeof(sAddr)) == 0) {
+        return clientSockte;
+    }
+    
+    return 0;
+}
+
+关键字解读：
+
+sockaddr_in 是表示IPv4地址和端口号的网络地址结构
+struct sockaddr_in {
+	__uint8_t       sin_len;        
+	sa_family_t     sin_family;     /* 地址族（Address Family）
+	in_port_t       sin_port;       /* 端口号
+	struct  in_addr sin_addr;       /* IPv4 地址
+	char            sin_zero[8];    /* 用于填充字节，保持与 sockaddr 结构体的大小相同
+};
+
+sockaddr_in6 是表示IPv6地址和端口号的网络地址结构
+struct sockaddr_in6 {
+	__uint8_t       sin6_len;       /* 
+	sa_family_t     sin6_family;    /* 地址族（Address Family）
+	in_port_t       sin6_port;      /* 端口号
+	__uint32_t      sin6_flowinfo;  /* 流信息（Flow Information）
+	struct in6_addr sin6_addr;      /* IPv6 地址
+	__uint32_t      sin6_scope_id;  /* 作用域 ID（Scope ID）
+};
+
+connect
+int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+connect 函数用于在套接字（socket）上建立与远程主机的连接。它是一个阻塞函数，会阻塞当前线程，直到连接建立成功或失败
+
+sockfd 是一个已创建的套接字的文件描述符，用于指定要进行连接的套接字。
+addr 是一个指向目标主机的地址结构体的指针，可以是 sockaddr_in 或 sockaddr_in6。
+addrlen 是地址结构体的长度，应根据实际使用的地址结构体类型进行设置。
+connect 函数的作用是将套接字连接到指定的目标主机。在调用 connect 函数后，会进行以下操作：
+
+根据 addr 和 addrlen 中提供的目标主机地址信息，尝试建立与目标主机的连接。
+如果连接成功建立，connect 函数返回值为 0。
+如果连接建立失败，connect 函数返回值为 -1，并设置相应的错误码，可以通过 errno 全局变量获取具体错误信息。
+需要注意的是，connect 函数在建立连接期间可能会阻塞当前线程，直到连接建立成功或失败。如果连接过程需要较长时间，可以将套接字设置为非阻塞模式，以允许在连接建立的过程中进行其他操作或等待连接完成。
+
+
+3 发送与接收
+
+- (void)sendMsg:(NSString*)str{
+    const char *send_Message = [str UTF8String];
+    send(self.clientScoket, send_Message, strlen(send_Message)+1, 0);
+}
+
+- (void)recieveAction {
+    while (1) {
+        char recv_Message[1024] = {0};
+        recv(self.clientScoket, recv_Message, sizeof(recv_Message), 0);
+        printf("%s\n",recv_Message);
+    }
+}
+
+关键字解读：
+
+ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+send 函数用于向已连接的套接字发送数据。它是一个阻塞函数，会阻塞当前线程，直到数据发送完成或发生错误。
+
+sockfd 是一个已连接的套接字的文件描述符，用于指定要发送数据的套接字 , 就是创建的 clinetSocket 
+buf 是一个指向待发送数据的缓冲区的指针。
+len 是待发送数据的长度，以字节为单位。
+flags 是可选的标志参数，可以用于控制发送行为，通常设置为 0。
+send 函数的作用是将指定长度的数据从缓冲区 buf 发送到套接字中。在调用 send 函数后，会进行以下操作：
+
+从 buf 指向的缓冲区中复制 len 字节的数据到套接字发送缓冲区中。
+如果数据成功发送到套接字发送缓冲区中，send 函数返回实际发送的字节数。
+如果发送过程中发生错误，send 函数返回 -1，并设置相应的错误码，可以通过 errno 全局变量获取具体错误信息。
+需要注意的是，send 函数在发送数据期间可能会阻塞当前线程，直到数据发送完成或发生错误。如果发送的数据量较大或网络传输较慢，发送操作可能会花费较长时间。
+
+
+ssize_t recv(int sockfd, void *buf, size_t len, int flags);
+recv 函数用于从已连接的套接字接收数据。它是一个阻塞函数，会阻塞当前线程，直到接收到数据或发生错误。
+
+sockfd 是一个已连接的套接字的文件描述符，用于指定要接收数据的套接字 ， 就是创建的 clinetSocket 
+buf 是一个指向接收数据的缓冲区的指针。
+len 是接收缓冲区的大小，以字节为单位。
+flags 是可选的标志参数，用于控制接收行为，通常设置为 0。
+recv 函数的作用是从套接字接收数据，并将接收到的数据存储到指定的缓冲区 buf 中。在调用 recv 函数后，会进行以下操作：
+
+从套接字接收缓冲区中读取最多 len 字节的数据到 buf 指向的缓冲区中。
+如果成功接收到数据，recv 函数返回实际接收到的字节数。
+如果接收过程中发生错误或对方关闭了连接，recv 函数返回 0。
+如果接收过程中发生错误，recv 函数返回 -1，并设置相应的错误码，可以通过 errno 全局变量获取具体错误信息。
+需要注意的是，recv 函数在接收数据期间可能会阻塞当前线程，直到接收到数据或发生错误。如果没有可用的数据或连接已关闭，recv 函数可能会一直阻塞。
+
+4 断开
+
+- (void)disConnect{
+    close(self.clientScoket);
+}
+
+关键字解读
+
+close 函数用于关闭一个打开的文件描述符，包括套接字（socket）、文件等。它是一个阻塞函数，会阻塞当前线程，直到文件描述符被成功关闭或发生错误。
+int close(int fd);
+
+fd 是要关闭的文件描述符。
+close 函数的作用是关闭指定的文件描述符，释放相关资源并终止与该文件描述符的关联。在调用 close 函数后，会进行以下操作：
+
+关闭文件描述符 fd，释放与之关联的资源。
+如果关闭成功，close 函数返回值为 0。
+如果关闭失败，close 函数返回值为 -1，并设置相应的错误码，可以通过 errno 全局变量获取具体错误信息。
+需要注意的是，关闭文件描述符后，原先与之关联的操作将不再有效。因此，在关闭文件描述符之前，确保已经完成了需要进行的操作，如发送完所有数据、接收完所有数据等。

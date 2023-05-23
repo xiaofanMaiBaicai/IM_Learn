@@ -53,9 +53,6 @@
     }
 }
 
-
-
-
 - (void)initScoket {
     if (_clientScoket != 0){
         [self disConnect];
@@ -85,6 +82,7 @@ static int CreateClinetSocket(void) {
 
 static int ConnectToServer(int clientSockte, const char *server_ip, unsigned short port) {
     // 创建一个地址结构体
+    struct sockaddr_in6 add = {0};
     struct sockaddr_in sAddr={0};
     // sin_family 网络地址族
     sAddr.sin_family = AF_INET;
