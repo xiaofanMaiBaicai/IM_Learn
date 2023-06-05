@@ -11,5 +11,6 @@ target 'IM' do
   # pod 'Alamofire', '~> 5.4'
 
   pod 'CocoaAsyncSocket'
+  pod 'SocketRocket'
 
 end
