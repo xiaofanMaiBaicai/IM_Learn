@@ -1,0 +1,10 @@
+memset
+htons
+htonl
+memcpy
+strcmp
+getifaddrs
+
+1 socket 相关api
+2 socket通信 的相关结构体
+网络字节序与主机字节序

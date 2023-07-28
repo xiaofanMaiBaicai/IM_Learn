@@ -979,6 +979,7 @@ enum GCDAsyncSocketConfig
 		
 		if (sq)
 		{
+            // 要求队列为 串行队列
 			NSAssert(sq != dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0),
 			         @"The given socketQueue parameter must not be a concurrent queue.");
 			NSAssert(sq != dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0),
@@ -993,29 +994,31 @@ enum GCDAsyncSocketConfig
 		}
 		else
 		{
+            // 创建一个串行队列
 			socketQueue = dispatch_queue_create([GCDAsyncSocketQueueName UTF8String], NULL);
 		}
-		
-		// The dispatch_queue_set_specific() and dispatch_get_specific() functions take a "void *key" parameter.
-		// From the documentation:
-		//
-		// > Keys are only compared as pointers and are never dereferenced.
-		// > Thus, you can use a pointer to a static variable for a specific subsystem or
-		// > any other value that allows you to identify the value uniquely.
-		//
-		// We're just going to use the memory address of an ivar.
-		// Specifically an ivar that is explicitly named for our purpose to make the code more readable.
-		//
-		// However, it feels tedious (and less readable) to include the "&" all the time:
-		// dispatch_get_specific(&IsOnSocketQueueOrTargetQueueKey)
-		//
-		// So we're going to make it so it doesn't matter if we use the '&' or not,
-		// by assigning the value of the ivar to the address of the ivar.
-		// Thus: IsOnSocketQueueOrTargetQueueKey == &IsOnSocketQueueOrTargetQueueKey;
+		/*
+        在 GCDAsyncSocket 中，IsOnSocketQueueOrTargetQueueKey 是一个用于标识当前操作是否在 Socket 队列或目标队列上的键值。这种写法是为了确保多线程环境下的线程安全性。
+
+        IsOnSocketQueueOrTargetQueueKey 实际上是一个指向静态变量的指针，它用作一个唯一的键值，用于在 GCDAsyncSocket 类的实例中保存和获取相关信息。在 Objective-C 中，静态变量的地址可以被用作键值，以便在多个方法和线程之间传递和共享数据。
+
+        为了更好地理解这个用法，让我们看看 GCDAsyncSocket 是如何使用它的。在 GCDAsyncSocket 的实现中，经常会用到一个叫做 socketQueue 的串行队列，用于管理所有的 Socket 操作。这个队列是一个私有队列，确保了在队列上的所有操作都是按顺序执行的，从而保证了线程安全性。
+
+        在 GCDAsyncSocket 的实现中，有一些方法可以在任何线程上调用，但它们内部需要确定当前操作是否在 socketQueue 上执行。为了实现这个目的，IsOnSocketQueueOrTargetQueueKey 被用作一个上下文键，存储在相关操作的 GCD 队列上。
+
+        在每个方法中，可以通过检查当前线程是否在 socketQueue 上来确定是否在正确的队列上执行。如果不在 socketQueue 上，它将检查当前线程是否在目标队列上执行，目标队列是方法的参数之一。这个检查是通过判断 IsOnSocketQueueOrTargetQueueKey 键对应的值是否为真来进行的。这样，就能保证操作在正确的队列上执行，避免了线程安全问题。
+
+        总结一下，IsOnSocketQueueOrTargetQueueKey 的写法是为了提供一种简单而可靠的方法，用于判断当前操作是否在正确的队列上执行，以确保 GCDAsyncSocket 在多线程环境下的线程安全性。
+         */
 		
 		IsOnSocketQueueOrTargetQueueKey = &IsOnSocketQueueOrTargetQueueKey;
 		
 		void *nonNullUnusedPointer = (__bridge void *)self;
+        
+        
+        // 是一个 GCD（Grand Central Dispatch）函数，用于在指定的调度队列上设置特定的上下文信息，
+        // 在 socketQueue 队列上，通过 IsOnSocketQueueOrTargetQueueKey key 设定上下文，绑定 nonNullUnusedPointer 上下文信息，产生关联
+        
 		dispatch_queue_set_specific(socketQueue, IsOnSocketQueueOrTargetQueueKey, nonNullUnusedPointer, NULL);
 		
 		readQueue = [[NSMutableArray alloc] initWithCapacity:5];
@@ -2130,10 +2133,13 @@ enum GCDAsyncSocketConfig
  * It is shared between the connectToHost and connectToAddress methods.
  * 
 **/
+
+// 链接之前常规检查
 - (BOOL)preConnectWithInterface:(NSString *)interface error:(NSError **)errPtr
 {
 	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
+    // 代理
 	if (delegate == nil) // Must have delegate set
 	{
 		if (errPtr)
@@ -2144,6 +2150,7 @@ enum GCDAsyncSocketConfig
 		return NO;
 	}
 	
+    // 代理队列
 	if (delegateQueue == NULL) // Must have delegate queue set
 	{
 		if (errPtr)
@@ -2154,6 +2161,7 @@ enum GCDAsyncSocketConfig
 		return NO;
 	}
 	
+    // 必须 是非连接的状态
 	if (![self isDisconnected]) // Must be disconnected
 	{
 		if (errPtr)
@@ -2164,9 +2172,11 @@ enum GCDAsyncSocketConfig
 		return NO;
 	}
 	
+    // 是否支持 ipv4 与 ipv6
 	BOOL isIPv4Disabled = (config & kIPv4Disabled) ? YES : NO;
 	BOOL isIPv6Disabled = (config & kIPv6Disabled) ? YES : NO;
 	
+    // 都不支持
 	if (isIPv4Disabled && isIPv6Disabled) // Must have IPv4 or IPv6 enabled
 	{
 		if (errPtr)
@@ -2182,6 +2192,7 @@ enum GCDAsyncSocketConfig
 		NSMutableData *interface4 = nil;
 		NSMutableData *interface6 = nil;
 		
+        // 去获取地址及绑定端口
 		[self getInterfaceAddress4:&interface4 address6:&interface6 fromDescription:interface port:0];
 		
 		if ((interface4 == nil) && (interface6 == nil))
@@ -2302,6 +2313,8 @@ enum GCDAsyncSocketConfig
 	LogTrace();
 	
 	// Just in case immutable objects were passed
+    // 防止传入一个可变数据，被改变了
+    
 	NSString *host = [inHost copy];
 	NSString *interface = [inInterface copy];
 	
@@ -2322,6 +2335,7 @@ enum GCDAsyncSocketConfig
 		
 		// Run through standard pre-connect checks
 		
+        // 常规检查
 		if (![self preConnectWithInterface:interface error:&preConnectErr])
 		{
 			return_from_block;
@@ -2368,6 +2382,7 @@ enum GCDAsyncSocketConfig
 				
 				for (NSData *address in addresses)
 				{
+                    // 交验合法性，
 					if (!address4 && [[self class] isIPv4Address:address])
 					{
 						address4 = address;
@@ -2678,12 +2693,17 @@ enum GCDAsyncSocketConfig
             // Since we're going to be binding to a specific port,
             // we should turn on reuseaddr to allow us to override sockets in time_wait.
             
+            // 设置当前 socketFD 可在销毁后重用
+            // 这个选项允许你重新使用本地地址，让你的应用程序能够在同一台主机上的同一个端口上打开多个套接字
+            //这里调用这个函数的主要目的是为了调用close的时候，不立即去关闭socket连接，而是经历一个TIME_WAIT过程。在这个过程中，socket是可以被复用的。我们注意到之前的connect流程并没有看到复用socket的代码。注意，我们现在走的连接流程是客户端的流程，等我们讲到服务端accept进行连接的时候，我们就能看到这个复用的作用了。
+            
             int reuseOn = 1;
             setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &reuseOn, sizeof(reuseOn));
         }
         
         const struct sockaddr *interfaceAddr = (const struct sockaddr *)[connectInterface bytes];
         
+        // 绑定·根据接口返回逻辑
         int result = bind(socketFD, interfaceAddr, (socklen_t)[connectInterface length]);
         if (result != 0)
         {
@@ -2699,6 +2719,8 @@ enum GCDAsyncSocketConfig
 
 - (int)createSocket:(int)family connectInterface:(NSData *)connectInterface errPtr:(NSError **)errPtr
 {
+    // 创建 stock 链接，返回一个 id 号
+    
     int socketFD = socket(family, SOCK_STREAM, 0);
     
     if (socketFD == SOCKET_NULL)
@@ -2709,6 +2731,7 @@ enum GCDAsyncSocketConfig
         return socketFD;
     }
     
+    // 将 socketFD 与 connectInterface 绑定 connectInterface 包含 host 和 port
     if (![self bindSocket:socketFD toInterface:connectInterface error:errPtr])
     {
         [self closeSocket:socketFD];
@@ -2717,6 +2740,19 @@ enum GCDAsyncSocketConfig
     }
     
     // Prevent SIGPIPE signals
+    
+//    SO_NOSIGPIPE 是一个套接字选项，用于在 macOS 和 iOS 系统上禁用 SIGPIPE 信号的默认行为。
+//
+//    SIGPIPE 是一种信号，它在对一个已关闭的套接字执行写操作时触发。默认情况下，当你向一个已关闭的套接字写入数据时，操作系统会向进程发送 SIGPIPE 信号，该信号可能会终止进程。
+//
+//    通过设置 SO_NOSIGPIPE 选项为 1，你可以禁用 SIGPIPE 信号的默认行为。这样，当你向一个已关闭的套接字写入数据时，不会触发 SIGPIPE 信号，而是会返回一个错误（EPIPE），以便你在代码中进行适当的处理。
+//
+//    禁用 SIGPIPE 信号通常用于处理网络编程中的写入操作，以避免进程被 SIGPIPE 信号中断而导致的意外终止。
+//
+//    在使用 setsockopt 函数设置套接字选项时，SO_NOSIGPIPE 的级别参数应为 SOL_SOCKET，选项参数应为 SO_NOSIGPIPE，选项值为 int 类型的指针，长度为 sizeof(int)。
+    
+    
+//    请注意，SO_NOSIGPIPE 选项仅在 macOS 和 iOS 系统上可用，其他操作系统可能具有不同的机制来处理类似的信号。
     
     int nosigpipe = 1;
     setsockopt(socketFD, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
@@ -2742,6 +2778,8 @@ enum GCDAsyncSocketConfig
 #pragma clang diagnostic push
 #pragma clang diagnostic warning "-Wimplicit-retain-self"
         
+        
+        // 异步·因为会阻塞线程
         int result = connect(socketFD, (const struct sockaddr *)[address bytes], (socklen_t)[address length]);
         int err = errno;
         
@@ -2750,20 +2788,24 @@ enum GCDAsyncSocketConfig
         
         dispatch_async(strongSelf->socketQueue, ^{ @autoreleasepool {
             
+            // 如果已链接，则关闭 socketFD
             if (strongSelf.isConnected)
             {
                 [strongSelf closeSocket:socketFD];
                 return_from_block;
             }
-            
+        
+            // 链接成功了··关闭另外一个，就不需要链接了
             if (result == 0)
             {
+                
                 [self closeUnusedSocket:socketFD];
                 
                 [strongSelf didConnect:aStateIndex];
             }
             else
             {
+                // 如果没有链接成功  就关闭当前的
                 [strongSelf closeSocket:socketFD];
                 
                 // If there are no more sockets trying to connect, we inform the error to the delegate
@@ -2832,6 +2874,7 @@ enum GCDAsyncSocketConfig
     {
         LogVerbose(@"Creating IPv4 socket");
         
+        // 创建 Socket 链接 ··与 connectInterface4 绑定， 并且设置 一些相关属性
         socket4FD = [self createSocket:AF_INET connectInterface:connectInterface4 errPtr:errPtr];
     }
     
@@ -2850,6 +2893,7 @@ enum GCDAsyncSocketConfig
 	int socketFD, alternateSocketFD;
 	NSData *address, *alternateAddress;
 	
+    // 如果 允许使用 preferIPv6 并且 socket6FD 不等于空  或者 socket4FD == 空··就使用ipv6
     if ((preferIPv6 && socket6FD != SOCKET_NULL) || socket4FD == SOCKET_NULL)
     {
         socketFD = socket6FD;
@@ -2978,6 +3022,7 @@ enum GCDAsyncSocketConfig
 	
 	flags |= kConnected;
 	
+    // 停止链接超时
 	[self endConnectTimeout];
 	
 	#if TARGET_OS_IPHONE
@@ -4073,6 +4118,16 @@ enum GCDAsyncSocketConfig
  * 
  * The returned value is a 'struct sockaddr' wrapped in an NSMutableData object.
 **/
+
+
+/**
+查找接口描述的地址。
+接口描述可以是接口名称（en0、en1、lo0）或相应的IP（192.168.4.34）。
+接口描述可以选择性地在末尾包含一个冒号分隔的端口号。
+如果提供了非零的端口参数，则会忽略接口描述中的任何端口号。
+返回值是一个以NSMutableData对象封装的'struct sockaddr'。
+**/
+
 - (void)getInterfaceAddress4:(NSMutableData **)interfaceAddr4Ptr
                     address6:(NSMutableData **)interfaceAddr6Ptr
              fromDescription:(NSString *)interfaceDescription
@@ -4083,20 +4138,27 @@ enum GCDAsyncSocketConfig
 	
 	NSString *interface = nil;
 	
+    // 先用: 分割··前面可能是ip··后面可能是port
 	NSArray *components = [interfaceDescription componentsSeparatedByString:@":"];
+    
 	if ([components count] > 0)
 	{
 		NSString *temp = [components objectAtIndex:0];
 		if ([temp length] > 0)
 		{
+            // 第一个就是地址
 			interface = temp;
 		}
 	}
+    // 获取port ， 并且port 没有设置
 	if ([components count] > 1 && port == 0)
 	{
 		NSString *temp = [components objectAtIndex:1];
+        
+        // temp 转成 long 类型的数据
 		long portL = strtol([temp UTF8String], NULL, 10);
 		
+        // UINT16_MAX 为 65535 port 数
 		if (portL > 0 && portL <= UINT16_MAX)
 		{
 			port = (uint16_t)portL;
@@ -4107,6 +4169,7 @@ enum GCDAsyncSocketConfig
 	{
 		// ANY address
 		
+        // 创建
 		struct sockaddr_in sockaddr4;
 		memset(&sockaddr4, 0, sizeof(sockaddr4));
 		
@@ -4128,6 +4191,8 @@ enum GCDAsyncSocketConfig
 	}
 	else if ([interface isEqualToString:@"localhost"] || [interface isEqualToString:@"loopback"])
 	{
+        //如果localhost、loopback 回环地址，虚拟地址，路由器工作它就存在。一般用来标识路由器
+        //这两种的话就赋值为127.0.0.1，端口为port
 		// LOOPBACK address
 		
 		struct sockaddr_in sockaddr4;
@@ -4153,9 +4218,14 @@ enum GCDAsyncSocketConfig
 	{
 		const char *iface = [interface UTF8String];
 		
+        //定义结构体指针，这个指针是本地IP
 		struct ifaddrs *addrs;
 		const struct ifaddrs *cursor;
 		
+        // 获取本机ip地址··== 0 是代表成功
+        
+//        getifaddrs 获取系统中所有网络接口
+        
 		if ((getifaddrs(&addrs) == 0))
 		{
 			cursor = addrs;
@@ -4166,12 +4236,24 @@ enum GCDAsyncSocketConfig
 					// IPv4
 					
 					struct sockaddr_in nativeAddr4;
+                    //memcpy内存copy函数将 scr地址 copy 到 dest上··len 代表要拷贝的字节数
+                    // memcpy(dest, src, len)
+//
+//                __dst: 这是目标地址，你要将数据复制到这个地址。它必须指向足够大的内存区域，能够容纳 n 个字节。
+//
+//                __src: 这是源地址，你要从这个地址复制数据。它必须指向至少 n 个字节的内存区域。
+//
+//                __n: 这是你想要复制的字节数。它必须是一个有效的大小，并且源和目标内存区域都必须大到足以容纳这么多字节。
+                    
 					memcpy(&nativeAddr4, cursor->ifa_addr, sizeof(nativeAddr4));
 					
+                    // 字符串比较   获取的本机ip 与 interface 做对比
+                    
+                    // cursor->ifa_name 接口名称
 					if (strcmp(cursor->ifa_name, iface) == 0)
 					{
 						// Name match
-						
+						// 如果相同就绑定
 						nativeAddr4.sin_port = htons(port);
 						
 						addr4 = [NSMutableData dataWithBytes:&nativeAddr4 length:sizeof(nativeAddr4)];
@@ -4179,7 +4261,7 @@ enum GCDAsyncSocketConfig
 					else
 					{
 						char ip[INET_ADDRSTRLEN];
-						
+						//  接口名称不同···就比较ip地址
 						const char *conversion = inet_ntop(AF_INET, &nativeAddr4.sin_addr, ip, sizeof(ip));
 						
 						if ((conversion != NULL) && (strcmp(ip, iface) == 0))
@@ -4192,6 +4274,7 @@ enum GCDAsyncSocketConfig
 						}
 					}
 				}
+                // 如果是ipv6的话··和Ipv4相同
 				else if ((addr6 == nil) && (cursor->ifa_addr->sa_family == AF_INET6))
 				{
 					// IPv6
@@ -4223,7 +4306,7 @@ enum GCDAsyncSocketConfig
 						}
 					}
 				}
-				
+				//
 				cursor = cursor->ifa_next;
 			}
 			
@@ -8348,6 +8431,15 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 					// Found IPv6 address.
 					// Wrap the native address structure, and add to results.
 					
+                    /*
+                    在给定的代码中，对于 res->ai_addr 进行强制类型转换的目的是将其转换为 struct sockaddr_in6 * 类型的指针，以便于访问和操作 IPv6 地址相关的字段。
+
+                    res->ai_addr 实际上是一个指向通用的 struct sockaddr 结构的指针，它用于存储不同地址族（如 IPv4、IPv6）的地址信息。因为 struct sockaddr_in6 是 struct sockaddr 的一个具体子类型，它包含了额外的 IPv6 地址字段。
+
+                    通过将 res->ai_addr 强制转换为 struct sockaddr_in6 *，我们可以将其视为 struct sockaddr_in6 类型的指针，并直接访问和操作其中的 IPv6 地址字段，如 sin6_port。
+
+                    因此，强制类型转换允许我们将通用的地址结构指针指向的内存解释为特定类型的结构，从而方便我们对其中的字段进行读写操作。
+                     */
 					struct sockaddr_in6 *sockaddr = (struct sockaddr_in6 *)(void *)res->ai_addr;
 					in_port_t *portPtr = &sockaddr->sin6_port;
 					if ((portPtr != NULL) && (*portPtr == 0)) {
