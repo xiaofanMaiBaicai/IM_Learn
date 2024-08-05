@@ -11,6 +11,8 @@
 		245926B62C60C01600848571 /* LYLGCDAsyncSocketPreBuffer.m in Sources */ = {isa = PBXBuildFile; fileRef = 245926B52C60C01600848571 /* LYLGCDAsyncSocketPreBuffer.m */; };
 		245926B92C60CDDB00848571 /* LYLGCDAsyncReadPacket.m in Sources */ = {isa = PBXBuildFile; fileRef = 245926B82C60CDDB00848571 /* LYLGCDAsyncReadPacket.m */; };
 		2491BE022A25E7A0004FA8FB /* LYLWebSocketManger.m in Sources */ = {isa = PBXBuildFile; fileRef = 2491BE012A25E7A0004FA8FB /* LYLWebSocketManger.m */; };
+		24DC89532C610E2600214A91 /* LYLGCDAsyncWritePacket.m in Sources */ = {isa = PBXBuildFile; fileRef = 24DC89522C610E2600214A91 /* LYLGCDAsyncWritePacket.m */; };
+		24DC89562C610F2400214A91 /* LYLGCDAsyncSpecialPacket.m in Sources */ = {isa = PBXBuildFile; fileRef = 24DC89552C610F2400214A91 /* LYLGCDAsyncSpecialPacket.m */; };
 		24E4E8FF2A1B587C00A9D6D6 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 24E4E8FE2A1B587C00A9D6D6 /* main.m */; };
 		24E4E90A2A1B5BE900A9D6D6 /* LYLSocketManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 24E4E9092A1B5BE900A9D6D6 /* LYLSocketManager.m */; };
 		2AEA43838A4E9607F2AAEA04 /* Pods_IM.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0733820ABF5563330B29D49C /* Pods_IM.framework */; };
@@ -38,6 +40,10 @@
 		245926B82C60CDDB00848571 /* LYLGCDAsyncReadPacket.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LYLGCDAsyncReadPacket.m; sourceTree = "<group>"; };
 		2491BE002A25E7A0004FA8FB /* LYLWebSocketManger.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LYLWebSocketManger.h; sourceTree = "<group>"; };
 		2491BE012A25E7A0004FA8FB /* LYLWebSocketManger.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LYLWebSocketManger.m; sourceTree = "<group>"; };
+		24DC89512C610E2600214A91 /* LYLGCDAsyncWritePacket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LYLGCDAsyncWritePacket.h; sourceTree = "<group>"; };
+		24DC89522C610E2600214A91 /* LYLGCDAsyncWritePacket.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LYLGCDAsyncWritePacket.m; sourceTree = "<group>"; };
+		24DC89542C610F2400214A91 /* LYLGCDAsyncSpecialPacket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LYLGCDAsyncSpecialPacket.h; sourceTree = "<group>"; };
+		24DC89552C610F2400214A91 /* LYLGCDAsyncSpecialPacket.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LYLGCDAsyncSpecialPacket.m; sourceTree = "<group>"; };
 		24E4E8FB2A1B587C00A9D6D6 /* IM */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = IM; sourceTree = BUILT_PRODUCTS_DIR; };
 		24E4E8FE2A1B587C00A9D6D6 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		24E4E9082A1B5BE900A9D6D6 /* LYLSocketManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LYLSocketManager.h; sourceTree = "<group>"; };
@@ -78,6 +84,10 @@
 				245926B52C60C01600848571 /* LYLGCDAsyncSocketPreBuffer.m */,
 				245926B72C60CDDB00848571 /* LYLGCDAsyncReadPacket.h */,
 				245926B82C60CDDB00848571 /* LYLGCDAsyncReadPacket.m */,
+				24DC89512C610E2600214A91 /* LYLGCDAsyncWritePacket.h */,
+				24DC89522C610E2600214A91 /* LYLGCDAsyncWritePacket.m */,
+				24DC89542C610F2400214A91 /* LYLGCDAsyncSpecialPacket.h */,
+				24DC89552C610F2400214A91 /* LYLGCDAsyncSpecialPacket.m */,
 			);
 			path = LYLCocoaAsyncSocket;
 			sourceTree = "<group>";
@@ -212,6 +222,8 @@
 			files = (
 				24E4E90A2A1B5BE900A9D6D6 /* LYLSocketManager.m in Sources */,
 				2491BE022A25E7A0004FA8FB /* LYLWebSocketManger.m in Sources */,
+				24DC89532C610E2600214A91 /* LYLGCDAsyncWritePacket.m in Sources */,
+				24DC89562C610F2400214A91 /* LYLGCDAsyncSpecialPacket.m in Sources */,
 				24E4E8FF2A1B587C00A9D6D6 /* main.m in Sources */,
 				245926B62C60C01600848571 /* LYLGCDAsyncSocketPreBuffer.m in Sources */,
 				0B38DCD72A24F4C600266290 /* LYLGCDAsyncSocketManger.m in Sources */,
