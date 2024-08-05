@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0B38DCD72A24F4C600266290 /* LYLGCDAsyncSocketManger.m in Sources */ = {isa = PBXBuildFile; fileRef = 0B38DCD62A24F4C600266290 /* LYLGCDAsyncSocketManger.m */; };
+		245926B62C60C01600848571 /* LYLCocoaAsyncSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = 245926B52C60C01600848571 /* LYLCocoaAsyncSocket.m */; };
 		2491BE022A25E7A0004FA8FB /* LYLWebSocketManger.m in Sources */ = {isa = PBXBuildFile; fileRef = 2491BE012A25E7A0004FA8FB /* LYLWebSocketManger.m */; };
 		24E4E8FF2A1B587C00A9D6D6 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 24E4E8FE2A1B587C00A9D6D6 /* main.m */; };
 		24E4E90A2A1B5BE900A9D6D6 /* LYLSocketManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 24E4E9092A1B5BE900A9D6D6 /* LYLSocketManager.m */; };
@@ -30,6 +31,8 @@
 		0733820ABF5563330B29D49C /* Pods_IM.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_IM.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		0B38DCD52A24F4C600266290 /* LYLGCDAsyncSocketManger.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LYLGCDAsyncSocketManger.h; sourceTree = "<group>"; };
 		0B38DCD62A24F4C600266290 /* LYLGCDAsyncSocketManger.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LYLGCDAsyncSocketManger.m; sourceTree = "<group>"; };
+		245926B42C60C01600848571 /* LYLCocoaAsyncSocket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LYLCocoaAsyncSocket.h; sourceTree = "<group>"; };
+		245926B52C60C01600848571 /* LYLCocoaAsyncSocket.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LYLCocoaAsyncSocket.m; sourceTree = "<group>"; };
 		2491BE002A25E7A0004FA8FB /* LYLWebSocketManger.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LYLWebSocketManger.h; sourceTree = "<group>"; };
 		2491BE012A25E7A0004FA8FB /* LYLWebSocketManger.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LYLWebSocketManger.m; sourceTree = "<group>"; };
 		24E4E8FB2A1B587C00A9D6D6 /* IM */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = IM; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,6 +55,28 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		245926B22C60BF5C00848571 /* Test */ = {
+			isa = PBXGroup;
+			children = (
+				24E4E9082A1B5BE900A9D6D6 /* LYLSocketManager.h */,
+				24E4E9092A1B5BE900A9D6D6 /* LYLSocketManager.m */,
+				0B38DCD52A24F4C600266290 /* LYLGCDAsyncSocketManger.h */,
+				0B38DCD62A24F4C600266290 /* LYLGCDAsyncSocketManger.m */,
+				2491BE002A25E7A0004FA8FB /* LYLWebSocketManger.h */,
+				2491BE012A25E7A0004FA8FB /* LYLWebSocketManger.m */,
+			);
+			path = Test;
+			sourceTree = "<group>";
+		};
+		245926B32C60BF8D00848571 /* LYLCocoaAsyncSocket */ = {
+			isa = PBXGroup;
+			children = (
+				245926B42C60C01600848571 /* LYLCocoaAsyncSocket.h */,
+				245926B52C60C01600848571 /* LYLCocoaAsyncSocket.m */,
+			);
+			path = LYLCocoaAsyncSocket;
+			sourceTree = "<group>";
+		};
 		24E4E8F22A1B587C00A9D6D6 = {
 			isa = PBXGroup;
 			children = (
@@ -73,13 +98,9 @@
 		24E4E8FD2A1B587C00A9D6D6 /* IM */ = {
 			isa = PBXGroup;
 			children = (
+				245926B32C60BF8D00848571 /* LYLCocoaAsyncSocket */,
+				245926B22C60BF5C00848571 /* Test */,
 				24E4E8FE2A1B587C00A9D6D6 /* main.m */,
-				24E4E9082A1B5BE900A9D6D6 /* LYLSocketManager.h */,
-				24E4E9092A1B5BE900A9D6D6 /* LYLSocketManager.m */,
-				0B38DCD52A24F4C600266290 /* LYLGCDAsyncSocketManger.h */,
-				0B38DCD62A24F4C600266290 /* LYLGCDAsyncSocketManger.m */,
-				2491BE002A25E7A0004FA8FB /* LYLWebSocketManger.h */,
-				2491BE012A25E7A0004FA8FB /* LYLWebSocketManger.m */,
 			);
 			path = IM;
 			sourceTree = "<group>";
@@ -187,6 +208,7 @@
 				24E4E90A2A1B5BE900A9D6D6 /* LYLSocketManager.m in Sources */,
 				2491BE022A25E7A0004FA8FB /* LYLWebSocketManger.m in Sources */,
 				24E4E8FF2A1B587C00A9D6D6 /* main.m in Sources */,
+				245926B62C60C01600848571 /* LYLCocoaAsyncSocket.m in Sources */,
 				0B38DCD72A24F4C600266290 /* LYLGCDAsyncSocketManger.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
