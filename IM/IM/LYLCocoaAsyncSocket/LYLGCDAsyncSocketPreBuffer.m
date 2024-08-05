@@ -1,13 +1,13 @@
 //
-//  LYLCocoaAsyncSocket.m
+//  LYLGCDAsyncSocketPreBuffer.m
 //  IM
 //
 //  Created by LYL on 2024/8/5.
 //
 
-#import "LYLCocoaAsyncSocket.h"
+#import "LYLGCDAsyncSocketPreBuffer.h"
 
-@implementation LYLCocoaAsyncSocket
+@implementation LYLGCDAsyncSocketPreBuffer
 
 - (instancetype)init NS_UNAVAILABLE
 {
