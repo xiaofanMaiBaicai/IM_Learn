@@ -10,9 +10,9 @@
 
 #import "GCDAsyncSocket.h"
 
-#if TARGET_OS_IPHONE
+//#if TARGET_OS_IPHONE
 #import <CFNetwork/CFNetwork.h>
-#endif
+//#endif
 
 #import <TargetConditionals.h>
 #import <arpa/inet.h>
@@ -116,9 +116,9 @@ NSString *const GCDAsyncSocketQueueName = @"GCDAsyncSocket";
 NSString *const GCDAsyncSocketThreadName = @"GCDAsyncSocket-CFStream";
 
 NSString *const GCDAsyncSocketManuallyEvaluateTrust = @"GCDAsyncSocketManuallyEvaluateTrust";
-#if TARGET_OS_IPHONE
+//#if TARGET_OS_IPHONE
 NSString *const GCDAsyncSocketUseCFStreamForTLS = @"GCDAsyncSocketUseCFStreamForTLS";
-#endif
+//#endif
 NSString *const GCDAsyncSocketSSLPeerID = @"GCDAsyncSocketSSLPeerID";
 NSString *const GCDAsyncSocketSSLProtocolVersionMin = @"GCDAsyncSocketSSLProtocolVersionMin";
 NSString *const GCDAsyncSocketSSLProtocolVersionMax = @"GCDAsyncSocketSSLProtocolVersionMax";
@@ -149,11 +149,11 @@ enum GCDAsyncSocketFlags
 	kSocketHasReadEOF              = 1 << 14,  // If set, we have read EOF from socket
 	kReadStreamClosed              = 1 << 15,  // If set, we've read EOF plus prebuffer has been drained
 	kDealloc                       = 1 << 16,  // If set, the socket is being deallocated
-#if TARGET_OS_IPHONE
+//#if TARGET_OS_IPHONE
 	kAddedStreamsToRunLoop         = 1 << 17,  // If set, CFStreams have been added to listener thread
 	kUsingCFStreamForTLS           = 1 << 18,  // If set, we're forced to use CFStream instead of SecureTransport
 	kSecureSocketHasBytesAvailable = 1 << 19,  // If set, CFReadStream has notified us of bytes available
-#endif
+//#endif
 };
 
 enum GCDAsyncSocketConfig
@@ -164,13 +164,13 @@ enum GCDAsyncSocketConfig
 	kAllowHalfDuplexConnection = 1 << 3,  // If set, the socket will stay open even if the read stream closes
 };
 
-#if TARGET_OS_IPHONE
+//#if TARGET_OS_IPHONE
   static NSThread *cfstreamThread;  // Used for CFStreams
 
 
   static uint64_t cfstreamThreadRetainCount;   // setup & teardown
   static dispatch_queue_t cfstreamThreadSetupQueue; // setup & teardown
-#endif
+//#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark -
@@ -928,11 +928,11 @@ enum GCDAsyncSocketConfig
 	
 	GCDAsyncSocketPreBuffer *preBuffer;
 		
-#if TARGET_OS_IPHONE
+//#if TARGET_OS_IPHONE
 	CFStreamClientContext streamContext;
 	CFReadStreamRef readStream;
 	CFWriteStreamRef writeStream;
-#endif
+//#endif
 	SSLContextRef sslContext;
 	GCDAsyncSocketPreBuffer *sslPreBuffer;
 	size_t sslWriteCachedLength;
@@ -2304,6 +2304,7 @@ enum GCDAsyncSocketConfig
 	return [self connectToHost:host onPort:port viaInterface:nil withTimeout:timeout error:errPtr];
 }
 
+// 链接
 - (BOOL)connectToHost:(NSString *)inHost
                onPort:(uint16_t)port
          viaInterface:(NSString *)inInterface
@@ -2335,7 +2336,7 @@ enum GCDAsyncSocketConfig
 		
 		// Run through standard pre-connect checks
 		
-        // 常规检查
+        // 常规检查 ，确定代理，代理队列，是否链接，如果 interface 不为nil 要绑定指定地址及端口
 		if (![self preConnectWithInterface:interface error:&preConnectErr])
 		{
 			return_from_block;
@@ -2357,12 +2358,14 @@ enum GCDAsyncSocketConfig
         int aStateIndex = self->stateIndex;
 		__weak GCDAsyncSocket *weakSelf = self;
 		
+        // 异步到全局并发队列执行
 		dispatch_queue_t globalConcurrentQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
 		dispatch_async(globalConcurrentQueue, ^{ @autoreleasepool {
 		#pragma clang diagnostic push
 		#pragma clang diagnostic warning "-Wimplicit-retain-self"
 			
 			NSError *lookupErr = nil;
+            //获取 服务端 ipv4 或者 ipv6 地址 数组返回·可能有多个，内部获取服务器地址为同步
 			NSMutableArray *addresses = [[self class] lookupHost:hostCpy port:port error:&lookupErr];
 			
 			__strong GCDAsyncSocket *strongSelf = weakSelf;
@@ -2371,7 +2374,6 @@ enum GCDAsyncSocketConfig
 			if (lookupErr)
 			{
 				dispatch_async(strongSelf->socketQueue, ^{ @autoreleasepool {
-					
 					[strongSelf lookup:aStateIndex didFail:lookupErr];
 				}});
 			}
@@ -2395,6 +2397,7 @@ enum GCDAsyncSocketConfig
 				
 				dispatch_async(strongSelf->socketQueue, ^{ @autoreleasepool {
 					
+                    // 去链接了
 					[strongSelf lookup:aStateIndex didSucceedWithAddress4:address4 address6:address6];
 				}});
 			}
@@ -2402,11 +2405,13 @@ enum GCDAsyncSocketConfig
 		#pragma clang diagnostic pop
 		}});
 		
+        // 开始设置超时时间
 		[self startConnectTimeout:timeout];
 		
 		result = YES;
 	}};
 	
+    // dispatch_get_specific 是 Grand Central Dispatch (GCD) 提供的一个函数，用于在当前执行的任务上下文中检索先前与调度队列或特定任务关联的特定上下文信息。这在调度队列的任务之间共享数据或状态信息时非常有用。
 	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
@@ -2754,6 +2759,8 @@ enum GCDAsyncSocketConfig
     
 //    请注意，SO_NOSIGPIPE 选项仅在 macOS 和 iOS 系统上可用，其他操作系统可能具有不同的机制来处理类似的信号。
     
+    // 用于设置套接字的选项。它允许你配置套接字的行为，包括套接字层（SOL_SOCKET）、协议层（IPPROTO_IP、IPPROTO_TCP、IPPROTO_UDP等）的选项。通过 setsockopt 函数，你可以调整各种参数，以满足特定的网络编程需求。
+    
     int nosigpipe = 1;
     setsockopt(socketFD, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
     
@@ -2779,7 +2786,7 @@ enum GCDAsyncSocketConfig
 #pragma clang diagnostic warning "-Wimplicit-retain-self"
         
         
-        // 异步·因为会阻塞线程
+        // 异步·因为会阻塞线程，在全局并发队列里面
         int result = connect(socketFD, (const struct sockaddr *)[address bytes], (socklen_t)[address length]);
         int err = errno;
         
@@ -2801,6 +2808,7 @@ enum GCDAsyncSocketConfig
                 
                 [self closeUnusedSocket:socketFD];
                 
+                //已经链接成功了
                 [strongSelf didConnect:aStateIndex];
             }
             else
@@ -2913,9 +2921,11 @@ enum GCDAsyncSocketConfig
     
     [self connectSocket:socketFD address:address stateIndex:aStateIndex];
     
+    // 候补
     if (alternateAddress)
     {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(alternateAddressDelay * NSEC_PER_SEC)), socketQueue, ^{
+            // 如果正常没连上，就使用候补地址去链接，方法内部会有 连没连上的 判断
             [self connectSocket:alternateSocketFD address:alternateAddress stateIndex:aStateIndex];
         });
     }
@@ -3025,10 +3035,10 @@ enum GCDAsyncSocketConfig
     // 停止链接超时
 	[self endConnectTimeout];
 	
-	#if TARGET_OS_IPHONE
+//	#if TARGET_OS_IPHONE
 	// The endConnectTimeout method executed above incremented the stateIndex.
 	aStateIndex = stateIndex;
-	#endif
+//	#endif
 	
 	// Setup read/write streams (as workaround for specific shortcomings in the iOS platform)
 	// 
@@ -3040,24 +3050,25 @@ enum GCDAsyncSocketConfig
 	// This gives the delegate time to properly configure the streams if needed.
 	
 	dispatch_block_t SetupStreamsPart1 = ^{
-		#if TARGET_OS_IPHONE
+//		#if TARGET_OS_IPHONE
 		
+        // 创建读写流
 		if (![self createReadAndWriteStream])
 		{
 			[self closeWithError:[self otherError:@"Error creating CFStreams"]];
 			return;
 		}
-		
+		// 为读写流设置callback 这里设置不包含可读可写的监听，
 		if (![self registerForStreamCallbacksIncludingReadWrite:NO])
 		{
 			[self closeWithError:[self otherError:@"Error in CFStreamSetClient"]];
 			return;
 		}
 		
-		#endif
+//		#endif
 	};
 	dispatch_block_t SetupStreamsPart2 = ^{
-		#if TARGET_OS_IPHONE
+//		#if TARGET_OS_IPHONE
 		
         if (aStateIndex != self->stateIndex)
 		{
@@ -3077,7 +3088,7 @@ enum GCDAsyncSocketConfig
 			return;
 		}
 		
-		#endif
+//		#endif
 	};
 	
 	// Notify delegate
@@ -3170,17 +3181,19 @@ enum GCDAsyncSocketConfig
 {
 	if (timeout >= 0.0)
 	{
+        // 创建一个source 用于监听timer的，触发的时候在 socketQueue 队列上执行
 		connectTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, socketQueue);
 		
 		__weak GCDAsyncSocket *weakSelf = self;
 		
+        // 绑定触发时候的回调
 		dispatch_source_set_event_handler(connectTimer, ^{ @autoreleasepool {
 		#pragma clang diagnostic push
 		#pragma clang diagnostic warning "-Wimplicit-retain-self"
 		
 			__strong GCDAsyncSocket *strongSelf = weakSelf;
 			if (strongSelf == nil) return_from_block;
-			
+			//超时
 			[strongSelf doConnectTimeout];
 			
 		#pragma clang diagnostic pop
@@ -3199,7 +3212,10 @@ enum GCDAsyncSocketConfig
 		});
 		#endif
 		
+        
 		dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC));
+        
+        // 设置一个定时器，timeout 后触发，等待时间无限期 ，容忍度为0
 		dispatch_source_set_timer(connectTimer, tt, DISPATCH_TIME_FOREVER, 0);
 		
 		dispatch_resume(connectTimer);
@@ -3261,7 +3277,7 @@ enum GCDAsyncSocketConfig
 	
 	[preBuffer reset];
 	
-	#if TARGET_OS_IPHONE
+//	#if TARGET_OS_IPHONE
 	{
 		if (readStream || writeStream)
 		{
@@ -3283,7 +3299,7 @@ enum GCDAsyncSocketConfig
 			}
 		}
 	}
-	#endif
+//	#endif
 	
 	[sslPreBuffer reset];
 	sslErrCode = lastSSLHandshakeError = noErr;
@@ -3295,7 +3311,7 @@ enum GCDAsyncSocketConfig
 		
 		SSLClose(sslContext);
 		
-		#if TARGET_OS_IPHONE || (__MAC_OS_X_VERSION_MIN_REQUIRED >= 1080)
+		#if (__MAC_OS_X_VERSION_MIN_REQUIRED >= 1080)
 		CFRelease(sslContext);
 		#else
 		SSLDisposeContext(sslContext);
@@ -4442,7 +4458,7 @@ enum GCDAsyncSocketConfig
 
 - (BOOL)usingCFStreamForTLS
 {
-	#if TARGET_OS_IPHONE
+//	#if TARGET_OS_IPHONE
 	
 	if ((flags & kSocketSecure) && (flags & kUsingCFStreamForTLS))
 	{
@@ -4451,7 +4467,7 @@ enum GCDAsyncSocketConfig
 		return YES;
 	}
 	
-	#endif
+//	#endif
 	
 	return NO;
 }
@@ -4460,7 +4476,7 @@ enum GCDAsyncSocketConfig
 {
 	// Invoking this method is equivalent to ![self usingCFStreamForTLS] (just more readable)
 	
-	#if TARGET_OS_IPHONE
+//	#if TARGET_OS_IPHONE
 	
 	if ((flags & kSocketSecure) && (flags & kUsingCFStreamForTLS))
 	{
@@ -4469,7 +4485,7 @@ enum GCDAsyncSocketConfig
 		return NO;
 	}
 	
-	#endif
+//	#endif
 	
 	return YES;
 }
@@ -4819,7 +4835,7 @@ enum GCDAsyncSocketConfig
 		return;
 	}
 	
-	#if TARGET_OS_IPHONE
+//	#if TARGET_OS_IPHONE
 	
 	if ([self usingCFStreamForTLS])
 	{
@@ -4847,7 +4863,7 @@ enum GCDAsyncSocketConfig
 		return;
 	}
 	
-	#endif
+//	#endif
 	
 	__block NSUInteger estimatedBytesAvailable = 0;
 	
@@ -4972,7 +4988,7 @@ enum GCDAsyncSocketConfig
 	
 	if ([self usingCFStreamForTLS])
 	{
-		#if TARGET_OS_IPHONE
+//		#if TARGET_OS_IPHONE
 		
 		// Requested CFStream, rather than SecureTransport, for TLS (via GCDAsyncSocketUseCFStreamForTLS)
 		
@@ -4982,7 +4998,7 @@ enum GCDAsyncSocketConfig
 		else
 			hasBytesAvailable = NO;
 		
-		#endif
+//		#endif
 	}
 	else
 	{
@@ -5185,7 +5201,7 @@ enum GCDAsyncSocketConfig
 		{
 			if ([self usingCFStreamForTLS])
 			{
-				#if TARGET_OS_IPHONE
+//				#if TARGET_OS_IPHONE
 				
 				// Using CFStream, rather than SecureTransport, for TLS
 				
@@ -5238,7 +5254,7 @@ enum GCDAsyncSocketConfig
 				// So we reset our flag, and rely on the next callback to alert us of more data.
 				flags &= ~kSecureSocketHasBytesAvailable;
 				
-				#endif
+//				#endif
 			}
 			else
 			{
@@ -6179,7 +6195,7 @@ enum GCDAsyncSocketConfig
 	{
 		if ([self usingCFStreamForTLS])
 		{
-			#if TARGET_OS_IPHONE
+//			#if TARGET_OS_IPHONE
 			
 			// 
 			// Writing data using CFStream (over internal TLS)
@@ -6211,7 +6227,7 @@ enum GCDAsyncSocketConfig
 				waiting = YES;
 			}
 			
-			#endif
+//			#endif
 		}
 		else
 		{
@@ -6659,7 +6675,7 @@ enum GCDAsyncSocketConfig
 	{
 		BOOL useSecureTransport = YES;
 		
-		#if TARGET_OS_IPHONE
+//		#if TARGET_OS_IPHONE
 		{
 			GCDAsyncSpecialPacket *tlsPacket = (GCDAsyncSpecialPacket *)currentRead;
             NSDictionary *tlsSettings = @{};
@@ -6670,7 +6686,7 @@ enum GCDAsyncSocketConfig
 			if (value && [value boolValue])
 				useSecureTransport = NO;
 		}
-		#endif
+//		#endif
 		
 		if (useSecureTransport)
 		{
@@ -6678,9 +6694,9 @@ enum GCDAsyncSocketConfig
 		}
 		else
 		{
-		#if TARGET_OS_IPHONE
+//		#if TARGET_OS_IPHONE
 			[self cf_startTLS];
-		#endif
+//		#endif
 		}
 	}
 }
@@ -6949,7 +6965,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	NSNumber *isServerNumber = [tlsSettings objectForKey:(__bridge NSString *)kCFStreamSSLIsServer];
 	BOOL isServer = [isServerNumber boolValue];
 	
-	#if TARGET_OS_IPHONE || (__MAC_OS_X_VERSION_MIN_REQUIRED >= 1080)
+	#if (__MAC_OS_X_VERSION_MIN_REQUIRED >= 1080)
 	{
 		if (isServer)
 			sslContext = SSLCreateContext(kCFAllocatorDefault, kSSLServerSide, kSSLStreamType);
@@ -7242,7 +7258,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	
 	// 9. GCDAsyncSocketSSLDiffieHellmanParameters
 	
-	#if !TARGET_OS_IPHONE
+//	#if !TARGET_OS_IPHONE
 	value = [tlsSettings objectForKey:GCDAsyncSocketSSLDiffieHellmanParameters];
 	if ([value isKindOfClass:[NSData class]])
 	{
@@ -7262,7 +7278,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		[self closeWithError:[self otherError:@"Invalid value for GCDAsyncSocketSSLDiffieHellmanParameters."]];
 		return;
 	}
-	#endif
+//	#endif
 
     // 10. kCFStreamSSLCertificates
     value = [tlsSettings objectForKey:GCDAsyncSocketSSLALPN];
@@ -7543,7 +7559,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 #pragma mark Security via CFStream
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#if TARGET_OS_IPHONE
+//#if TARGET_OS_IPHONE
 
 - (void)cf_finishSSLHandshake
 {
@@ -7674,13 +7690,13 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	LogVerbose(@"Waiting for SSL Handshake to complete...");
 }
 
-#endif
+//#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark CFStream
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#if TARGET_OS_IPHONE
+//#if TARGET_OS_IPHONE
 
 + (void)ignore:(id)_
 {}
@@ -7700,6 +7716,8 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		
 		if (++cfstreamThreadRetainCount == 1)
 		{
+            // 创建子线程
+            // cfstreamThread 开启runloop，使线程保活
 			cfstreamThread = [[NSThread alloc] initWithTarget:self
 			                                         selector:@selector(cfstreamThread:)
 			                                           object:nil];
@@ -7779,7 +7797,10 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	LogTrace();
 	NSAssert([NSThread currentThread] == cfstreamThread, @"Invoked on wrong thread");
 	
+    // 获取当前子线程的runloop，
 	CFRunLoopRef runLoop = CFRunLoopGetCurrent();
+    
+//    用于将 CFReadStream 对象与指定的运行循环（Run Loop）关联起来，并指定在运行循环的哪个模式下处理流事件。通过这样做，你可以异步地处理流事件（如数据可用、流到达末尾、错误等），而不需要阻塞主线程。
 	
 	if (asyncSocket->readStream)
 		CFReadStreamScheduleWithRunLoop(asyncSocket->readStream, runLoop, kCFRunLoopDefaultMode);
@@ -7965,12 +7986,14 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	
 	LogVerbose(@"Creating read and write stream...");
 	
+    // 创建一个读写流，但此方法被标记为已过期
 	CFStreamCreatePairWithSocket(NULL, (CFSocketNativeHandle)socketFD, &readStream, &writeStream);
 	
 	// The kCFStreamPropertyShouldCloseNativeSocket property should be false by default (for our case).
 	// But let's not take any chances.
 	
 	if (readStream)
+        //  设置相关属性，这里指的是关闭流的时候，不需要关闭 底层socket
 		CFReadStreamSetProperty(readStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanFalse);
 	if (writeStream)
 		CFWriteStreamSetProperty(writeStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanFalse);
@@ -8004,6 +8027,8 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	
 	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	NSAssert((readStream != NULL && writeStream != NULL), @"Read/Write stream is null");
+    
+    // CFStreamClientContext 是 Core Foundation 框架中用于定义流（如读流和写流）客户端上下文的结构体。它用于在注册回调函数时传递用户定义的上下文信息，通常在处理异步事件时使用。
 	
 	streamContext.version = 0;
 	streamContext.info = (__bridge void *)(self);
@@ -8011,10 +8036,14 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	streamContext.release = nil;
 	streamContext.copyDescription = nil;
 	
+    // kCFStreamEventErrorOccurred 流操作过程中发生了错误
+    // kCFStreamEventEndEncountered 流已经到达了文件、数据或连接的末尾
 	CFOptionFlags readStreamEvents = kCFStreamEventErrorOccurred | kCFStreamEventEndEncountered;
 	if (includeReadWrite)
+        // kCFStreamEventHasBytesAvailable 流中有可供读取的字节
 		readStreamEvents |= kCFStreamEventHasBytesAvailable;
 	
+    // 为读流设置 callback
 	if (!CFReadStreamSetClient(readStream, readStreamEvents, &CFReadStreamCallback, &streamContext))
 	{
 		return NO;
@@ -8022,8 +8051,9 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	
 	CFOptionFlags writeStreamEvents = kCFStreamEventErrorOccurred | kCFStreamEventEndEncountered;
 	if (includeReadWrite)
+        // kCFStreamEventCanAcceptBytes 写入流（CFWriteStream）已经准备好
 		writeStreamEvents |= kCFStreamEventCanAcceptBytes;
-	
+	// 为写流设置 callback
 	if (!CFWriteStreamSetClient(writeStream, writeStreamEvents, &CFWriteStreamCallback, &streamContext))
 	{
 		return NO;
@@ -8042,8 +8072,9 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	if (!(flags & kAddedStreamsToRunLoop))
 	{
 		LogVerbose(@"Adding streams to runloop...");
-		
+        // 创建子线程，并且将子线程保活，开启runloop,
 		[[self class] startCFStreamThreadIfNeeded];
+        // 将读写流写入到cfstreamThread线程 中的runloop中，让 runloop任何模式下都触发，将读流附加到运行循环和特定的运行模式中，使得运行循环能够监听和处理读流的事件，如数据可读、流打开完成、错误发生等。这对于异步 I/O 操作非常重要，因为它允许程序在不阻塞的情况下处理 I/O 事件。
         dispatch_sync(cfstreamThreadSetupQueue, ^{
             [[self class] performSelector:@selector(scheduleCFStreams:)
                                  onThread:cfstreamThread
@@ -8106,7 +8137,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	return YES;
 }
 
-#endif
+//#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Advanced
@@ -8230,7 +8261,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	return socket6FD;
 }
 
-#if TARGET_OS_IPHONE
+//#if TARGET_OS_IPHONE
 
 /**
  * Questions? Have you read the header file?
@@ -8333,7 +8364,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	return [self enableBackgroundingOnSocketWithCaveat:YES];
 }
 
-#endif
+//#endif
 
 - (SSLContextRef)sslContext
 {
@@ -8350,13 +8381,15 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 #pragma mark Class Utilities
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
 + (NSMutableArray *)lookupHost:(NSString *)host port:(uint16_t)port error:(NSError **)errPtr
 {
 	LogTrace();
 	
 	NSMutableArray *addresses = nil;
 	NSError *error = nil;
-	
+
+    // 服务器在本地
 	if ([host isEqualToString:@"localhost"] || [host isEqualToString:@"loopback"])
 	{
 		// Use LOOPBACK address
@@ -8395,8 +8428,12 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 		hints.ai_socktype = SOCK_STREAM;
 		hints.ai_protocol = IPPROTO_TCP;
 		
+//        getaddrinfo 是一个用于网络编程的函数，通常用于将主机名（如域名）和服务名（如端口号）转换为套接字地址。
+        // hints 是设置希望返回的 指向一个 struct addrinfo 结构，提供关于 getaddrinfo 需要执行的查询类型的提示。如果是 NULL，表示没有任何提示。
+//            该结构允许指定期望的返回地址类型、套接字类型、协议等。
 		int gai_error = getaddrinfo([host UTF8String], [portStr UTF8String], &hints, &res0);
 		
+        // 如果有错误
 		if (gai_error)
 		{
 			error = [self gaiError:gai_error];
@@ -8413,6 +8450,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 			
 			addresses = [NSMutableArray arrayWithCapacity:capacity];
 			
+            // 返回的 res0 是链式结构，可能包含多个·ipv4,ipv6 ，还可能多个服务器地址
 			for (res = res0; res; res = res->ai_next)
 			{
 				if (res->ai_family == AF_INET)
