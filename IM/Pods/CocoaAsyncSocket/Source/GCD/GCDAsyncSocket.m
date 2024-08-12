@@ -924,7 +924,7 @@ enum GCDAsyncSocketConfig
 	GCDAsyncReadPacket *currentRead;
 	GCDAsyncWritePacket *currentWrite;
 	
-	unsigned long socketFDBytesAvailable;
+	unsigned long socketFDBytesAvailable; // 套接字可读取的字节数
 	
 	GCDAsyncSocketPreBuffer *preBuffer;
 		
@@ -4844,28 +4844,34 @@ enum GCDAsyncSocketConfig
 		// Only flush the ssl buffers if the prebuffer is empty.
 		// This is to avoid growing the prebuffer inifinitely large.
 		
+        //仅在预缓冲区为空时刷新ssl缓冲区。
+        //这是为了避免预缓冲区变得无限大
+
 		return;
 	}
 	
 //	#if TARGET_OS_IPHONE
 	
+    // 使用 cfstream
 	if ([self usingCFStreamForTLS])
 	{
+        // 校验 flags 与 readStream 是否支持文字读写
 		if ((flags & kSecureSocketHasBytesAvailable) && CFReadStreamHasBytesAvailable(readStream))
 		{
 			LogVerbose(@"%@ - Flushing ssl buffers into prebuffer...", THIS_METHOD);
 			
 			CFIndex defaultBytesToRead = (1024 * 4);
-			
+			// 校验缓冲区是否能放下4k，不能就扩容
 			[preBuffer ensureCapacityForWrite:defaultBytesToRead];
 			
 			uint8_t *buffer = [preBuffer writeBuffer];
 			
+            // 从 readStream 中读取 defaultBytesToRead 大小的数据到 buffer 中，并且已经解密
 			CFIndex result = CFReadStreamRead(readStream, buffer, defaultBytesToRead);
 			LogVerbose(@"%@ - CFReadStreamRead(): result = %i", THIS_METHOD, (int)result);
 			
 			if (result > 0)
-			{
+			{   // 更新 write 下标
 				[preBuffer didWrite:result];
 			}
 			
@@ -4890,10 +4896,22 @@ enum GCDAsyncSocketConfig
 		// We call the variable "estimated" because we don't know how many decrypted bytes we'll get
 		// from the encrypted bytes in the sslPreBuffer.
 		// However, we do know this is an upper bound on the estimation.
+        
+        /* 在处理 SSL/TLS 连接时，数据在网络上传输时是加密的。为了从中读取明文数据，需要依赖 SSL/TLS 库（如 SecureTransport）对接收到的数据进行解密。在这个过程中，可能涉及几个不同的缓冲区：
+
+            1.socketFDBytesAvailable:
+            •    这是从底层 BSD 套接字中读取的加密数据的字节数。尚未被读入用户空间缓冲区，即在套接字缓冲区中仍然有多少加密数据可供读取。
+            2.[sslPreBuffer availableBytes]:
+            •    这是从 BSD 套接字中读取但尚未解密的数据。这些数据已经被缓冲在 sslPreBuffer 中，但还没有被传递给 SecureTransport 进行解密。
+            3.sslInternalBufSize:
+            •    这是 SecureTransport 已经解密但尚未被应用程序读取的字节数。它表示 SecureTransport 内部缓冲区中可供读取的明文数据量。
+         */
 		
         estimatedBytesAvailable = self->socketFDBytesAvailable + [self->sslPreBuffer availableBytes];
 		
 		size_t sslInternalBufSize = 0;
+        
+        // SSLGetBufferedReadSize 是 SecureTransport API 中的一个函数，用于获取 SSL/TLS 连接上下文中已经解密并且在内部缓冲区中等待读取的字节数。换句话说，这个函数告诉你还有多少已经解密的数据在 SSL/TLS 层中等待被你的应用程序读取
         SSLGetBufferedReadSize(self->sslContext, &sslInternalBufSize);
 		
 		estimatedBytesAvailable += sslInternalBufSize;
@@ -4901,6 +4919,7 @@ enum GCDAsyncSocketConfig
 	
 	updateEstimatedBytesAvailable();
 	
+    // 确实有可读的信息
 	if (estimatedBytesAvailable > 0)
 	{
 		LogVerbose(@"%@ - Flushing ssl buffers into prebuffer...", THIS_METHOD);
@@ -4911,7 +4930,7 @@ enum GCDAsyncSocketConfig
 			LogVerbose(@"%@ - estimatedBytesAvailable = %lu", THIS_METHOD, (unsigned long)estimatedBytesAvailable);
 			
 			// Make sure there's enough room in the prebuffer
-			
+			// 校验大小并扩容
 			[preBuffer ensureCapacityForWrite:estimatedBytesAvailable];
 			
 			// Read data into prebuffer
@@ -4919,6 +4938,9 @@ enum GCDAsyncSocketConfig
 			uint8_t *buffer = [preBuffer writeBuffer];
 			size_t bytesRead = 0;
 			
+            // estimatedBytesAvailable 需要读取的
+            // bytesRead 实际读取的
+            // 从sslContext中读取数据，解密，并写入到buffer中，
 			OSStatus result = SSLRead(sslContext, buffer, (size_t)estimatedBytesAvailable, &bytesRead);
 			LogVerbose(@"%@ - read from secure socket = %u", THIS_METHOD, (unsigned)bytesRead);
 			
@@ -4935,9 +4957,10 @@ enum GCDAsyncSocketConfig
 			}
 			else
 			{
+                // 更新下一次可读的大小
 				updateEstimatedBytesAvailable();
 			}
-			
+			// 这里可以多次读取
 		} while (!done && estimatedBytesAvailable > 0);
 	}
 }
@@ -4954,7 +4977,7 @@ enum GCDAsyncSocketConfig
 		LogVerbose(@"No currentRead or kReadsPaused");
 		
 		// Unable to read at this time
-		
+		// 使用ssl 安全通信
 		if (flags & kSocketSecure)
 		{
 			// Here's the situation:
@@ -4970,6 +4993,21 @@ enum GCDAsyncSocketConfig
 			// The SSL/TLS protocol has it's own disconnection handshake.
 			// So when a secure socket is closed, a "goodbye" packet comes across the wire.
 			// We want to make sure we read the "goodbye" packet so we can properly detect the TCP disconnection.
+            
+            // 这里处理的很巧妙，主要是有2个原因
+            // 1. 提前解密数据以减少用户等待时间
+            /* •    情境：已经建立了一个安全连接（即使用 SSL/TLS 协议进行加密通信的连接）。
+            •    可能性：当前可能没有要读取的数据请求（currentRead 为空），但是可能有一些加密的数据已经到达并存储在缓冲区中。
+            •    问题：当用户稍后发起读取请求时，如果这些加密数据没有提前解密，用户将不得不等待数据解密过程。
+            •    解决方案：与其让用户在发起读取请求时等待数据解密，不如提前处理缓冲区中的加密数据，这样可以减少用户等待时间，提高响应速度。
+             */
+            
+            // 2. 正确检测安全连接的断开
+            /*
+             •    背景：在 SSL/TLS 连接中，协议规定了专门的断开连接握手过程。当安全连接关闭时，服务器会发送一个“再见”数据包（goodbye packet），表示连接的正常终止。
+             •    问题：如果没有及时读取并处理这个“再见”数据包，可能会导致无法正确检测到 TCP 连接的断开，从而造成错误处理或资源泄漏。
+             •    目的：通过提前读取和处理这些加密数据，确保在连接断开时能够正确接收和处理“再见”数据包，从而正确地检测到连接的终止并执行相应的清理工作。
+             */
 			
 			[self flushSSLBuffers];
 		}
@@ -4992,6 +5030,11 @@ enum GCDAsyncSocketConfig
 				[self suspendReadSource];
 			}
 		}
+        
+//        我们绕了一圈，讲完了这个包为空或者当前暂停状态下的前置处理，总结一下：
+//        1 就是如果是SSL类型的数据，那么先解密了，缓冲到prebuffer中去。
+//        2 判断当前socket可读数据大于0，非CFStreamSSL类型，则挂起source，防止反复触发。
+
 		return;
 	}
 	
