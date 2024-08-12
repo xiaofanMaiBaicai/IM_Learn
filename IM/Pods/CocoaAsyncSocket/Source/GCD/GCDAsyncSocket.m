@@ -3076,12 +3076,13 @@ enum GCDAsyncSocketConfig
 			return;
 		}
 		
+        // 创建子线程，并将子线程保活，将读写流与子线程的runloop关联起来
 		if (![self addStreamsToRunLoop])
 		{
 			[self closeWithError:[self otherError:@"Error in CFStreamScheduleWithRunLoop"]];
 			return;
 		}
-		
+		// 开启读写流
 		if (![self openStreams])
 		{
 			[self closeWithError:[self otherError:@"Error creating CFStreams"]];
@@ -3101,6 +3102,9 @@ enum GCDAsyncSocketConfig
 
 	if (delegateQueue && host != nil && [theDelegate respondsToSelector:@selector(socket:didConnectToHost:port:)])
 	{
+        
+        // 巧妙的顺序
+        
 		SetupStreamsPart1();
 		
 		dispatch_async(delegateQueue, ^{ @autoreleasepool {
@@ -3139,6 +3143,7 @@ enum GCDAsyncSocketConfig
 	
 	// Enable non-blocking IO on the socket
 	
+    // 将 socketFD 设置为非阻塞
 	int result = fcntl(socketFD, F_SETFL, O_NONBLOCK);
 	if (result == -1)
 	{
@@ -3148,8 +3153,8 @@ enum GCDAsyncSocketConfig
 		return;
 	}
 	
-	// Setup our read/write sources
-	
+
+	// 设置我们自己的读写流，并启动了读源
 	[self setupReadAndWriteSourcesForNewlyConnectedSocket:socketFD];
 	
 	// Dequeue any pending read/write requests
@@ -4352,6 +4357,7 @@ enum GCDAsyncSocketConfig
 
 - (void)setupReadAndWriteSourcesForNewlyConnectedSocket:(int)socketFD
 {
+    // 创新读写source 来监听 socketFD 在 socketQueue 中处理
 	readSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, socketFD, 0, socketQueue);
 	writeSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, socketFD, 0, socketQueue);
 	
@@ -4359,6 +4365,7 @@ enum GCDAsyncSocketConfig
 	
 	__weak GCDAsyncSocket *weakSelf = self;
 	
+    // 给读source 设置触发的回调
 	dispatch_source_set_event_handler(readSource, ^{ @autoreleasepool {
 	#pragma clang diagnostic push
 	#pragma clang diagnostic warning "-Wimplicit-retain-self"
@@ -4403,6 +4410,7 @@ enum GCDAsyncSocketConfig
 	dispatch_source_t theWriteSource = writeSource;
 	#endif
 	
+    // source 被取消的时候，才会触发这个方法，可能不会立即触发，要等source其他任务都处理完以后，才会触发下面的回调，并且执行了 cancel就不会在被启用，只能重新创建，一般用于清洁工作，内存释放什么的
 	dispatch_source_set_cancel_handler(readSource, ^{
 	#pragma clang diagnostic push
 	#pragma clang diagnostic warning "-Wimplicit-retain-self"
@@ -4450,6 +4458,7 @@ enum GCDAsyncSocketConfig
 	flags &= ~kReadSourceSuspended;
 	
 	LogVerbose(@"dispatch_resume(readSource)");
+    // 启动读源
 	dispatch_resume(readSource);
 	
 	flags |= kSocketCanAcceptBytes;
@@ -4767,6 +4776,7 @@ enum GCDAsyncSocketConfig
 				flags |= kStartingReadTLS;
 				
 				// This method won't do anything unless both kStartingReadTLS and kStartingWriteTLS are set
+                //只有读写都开启了TLS,才会做TLS认证
 				[self maybeStartTLS];
 			}
 			else
@@ -4774,9 +4784,11 @@ enum GCDAsyncSocketConfig
 				LogVerbose(@"Dequeued GCDAsyncReadPacket");
 				
 				// Setup read timer (if needed)
+                // 设置读的超时时间
 				[self setupReadTimerWithTimeout:currentRead->timeout];
 				
 				// Immediately read, if possible
+                //
 				[self doReadData];
 			}
 		}
@@ -6687,7 +6699,7 @@ enum GCDAsyncSocketConfig
 				useSecureTransport = NO;
 		}
 //		#endif
-		
+		// 使用 ssl SecureTransport
 		if (useSecureTransport)
 		{
 			[self ssl_startTLS];
@@ -6695,6 +6707,7 @@ enum GCDAsyncSocketConfig
 		else
 		{
 //		#if TARGET_OS_IPHONE
+            // 使用oc的 cfstream , 已经过时不建议使用
 			[self cf_startTLS];
 //		#endif
 		}
@@ -6967,6 +6980,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	
 	#if (__MAC_OS_X_VERSION_MIN_REQUIRED >= 1080)
 	{
+        // 创建一个sslContext，分服务端客户端
 		if (isServer)
 			sslContext = SSLCreateContext(kCFAllocatorDefault, kSSLServerSide, kSSLStreamType);
 		else
@@ -6989,6 +7003,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	}
 	#endif
 	
+    // 给 sslContext 绑定 网络io 读写的回调的回调
 	status = SSLSetIOFuncs(sslContext, &SSLReadFunction, &SSLWriteFunction);
 	if (status != noErr)
 	{
@@ -6996,6 +7011,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		return;
 	}
 	
+    // 将 sslContext 与 SSLConnectionRef（连接者）管理起来
 	status = SSLSetConnection(sslContext, (__bridge SSLConnectionRef)self);
 	if (status != noErr)
 	{
@@ -7012,7 +7028,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 			[self closeWithError:[self otherError:@"Manual trust validation is not supported for server sockets"]];
 			return;
 		}
-		
+		// 允许中断捂手，方便自己去校验证书
 		status = SSLSetSessionOption(sslContext, kSSLSessionOptionBreakOnServerAuth, true);
 		if (status != noErr)
 		{
@@ -7072,6 +7088,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		const char *peer = [peerName UTF8String];
 		size_t peerLen = strlen(peer);
 		
+        // 可以指定对方的域名，名字等（用于验证对等方证书中的公共名字段）
 		status = SSLSetPeerDomainName(sslContext, peer, peerLen);
 		if (status != noErr)
 		{
@@ -7093,7 +7110,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	if ([value isKindOfClass:[NSArray class]])
 	{
 		NSArray *certs = (NSArray *)value;
-		
+		// 指定证书，服务端是必须的，客户端可以选配
 		status = SSLSetCertificate(sslContext, (__bridge CFArrayRef)certs);
 		if (status != noErr)
 		{
@@ -7116,6 +7133,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	{
 		NSData *peerIdData = (NSData *)value;
 		
+        // 指定一些对该库不透明的数据，这些数据足以唯一标识当前会话的对等方
 		status = SSLSetPeerID(sslContext, [peerIdData bytes], [peerIdData length]);
 		if (status != noErr)
 		{
@@ -7141,6 +7159,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		SSLProtocol minProtocol = (SSLProtocol)[(NSNumber *)value intValue];
 		if (minProtocol != kSSLProtocolUnknown)
 		{
+            // 执行ssl协议最低版本
 			status = SSLSetProtocolVersionMin(sslContext, minProtocol);
 			if (status != noErr)
 			{
@@ -7165,6 +7184,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		SSLProtocol maxProtocol = (SSLProtocol)[(NSNumber *)value intValue];
 		if (maxProtocol != kSSLProtocolUnknown)
 		{
+            // 设置最高版本
 			status = SSLSetProtocolVersionMax(sslContext, maxProtocol);
 			if (status != noErr)
 			{
@@ -7187,6 +7207,12 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	if ([value isKindOfClass:[NSNumber class]])
 	{
 		NSNumber *falseStart = (NSNumber *)value;
+        
+//        kSSLSessionOptionFalseStart 是 SSLSessionOption 枚举中的一个选项，用于启用或禁用 TLS False Start。启用 False Start 可以减少握手延迟，从而提高性能。
+//        TLS False Start 的概念
+//        TLS False Start 是 TLS 1.2 引入的一种优化技术。它允许客户端在握手尚未完全完成之前开始发送应用数据。具体来说，在完成客户端到服务器的密钥交换之后，客户端可以立即开始发送加密的数据，而无需等待完整的握手过程结束。这可以显著减少握手延迟，从而加快连接的建立。
+
+        
 		status = SSLSetSessionOption(sslContext, kSSLSessionOptionFalseStart, [falseStart boolValue]);
 		if (status != noErr)
 		{
@@ -7208,6 +7234,13 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	if ([value isKindOfClass:[NSNumber class]])
 	{
 		NSNumber *oneByteRecord = (NSNumber *)value;
+        
+//        kSSLSessionOptionSendOneByteRecord 是 SSLSessionOption 枚举中的一个选项，用于控制是否启用 1/n-1 记录分割以缓解 BEAST 攻击。启用这个选项会导致 SSL/TLS 实现将数据分割成更小的记录来发送。
+//        BEAST 攻击的背景
+//        BEAST (Browser Exploit Against SSL/TLS) 是一种针对 SSL/TLS 协议的攻击，主要影响 TLS 1.0 及更早版本。攻击者利用了 CBC（密码块链）模式中的弱点，通过拦截和篡改加密数据块来解密敏感信息。为了缓解这种攻击，一种有效的方法是将数据分割成更小的记录来发送，这样攻击者就无法利用块之间的依赖性进行攻击。
+        
+        // 新的tls 协议已经没有这个安全隐患了
+        
 		status = SSLSetSessionOption(sslContext, kSSLSessionOptionSendOneByteRecord, [oneByteRecord boolValue]);
 		if (status != noErr)
 		{
@@ -7240,6 +7273,8 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 			NSNumber *cipherObject = [cipherSuites objectAtIndex:cipherIndex];
 			ciphers[cipherIndex] = (SSLCipherSuite)[cipherObject unsignedIntValue];
 		}
+        
+        // SSLSetEnabledCiphers 函数用于为 SSL 会话设置一组启用的加密套件。通过指定特定的加密套件，可以控制 SSL/TLS 会话的安全性和性能。该函数必须在没有活动会话时调用，并且适用于需要特定加密套件配置的场景。
 		
 		status = SSLSetEnabledCiphers(sslContext, ciphers, numberCiphers);
 		if (status != noErr)
@@ -7287,6 +7322,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
         if (@available(iOS 11.0, macOS 10.13, tvOS 11.0, *))
         {
             CFArrayRef protocols = (__bridge CFArrayRef)((NSArray *) value);
+            // 设置支持的协议
             status = SSLSetALPNProtocols(sslContext, protocols);
             if (status != noErr)
             {
@@ -7391,23 +7427,28 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	// Any data in the preBuffer needs to be moved into the sslPreBuffer,
 	// as this data is now part of the secure read stream.
 	
+    // 创建 sslPreBuffer 缓存包
 	sslPreBuffer = [[GCDAsyncSocketPreBuffer alloc] initWithCapacity:(1024 * 4)];
 	
+    //获取到preBuffer可读大小
 	size_t preBufferLength  = [preBuffer availableBytes];
 	
 	if (preBufferLength > 0)
 	{
+        // 校验下能不能放这么多数据，如果不可以就自己扩容
 		[sslPreBuffer ensureCapacityForWrite:preBufferLength];
-		
+		// 从 preBuffer 的 readBuffer位置，读取 preBufferLength 这么长到 sslPreBuffer 的可写的下标的地方
 		memcpy([sslPreBuffer writeBuffer], [preBuffer readBuffer], preBufferLength);
+        // 设置已读位置
 		[preBuffer didRead:preBufferLength];
+        // 设置已写位置
 		[sslPreBuffer didWrite:preBufferLength];
 	}
 	
 	sslErrCode = lastSSLHandshakeError = noErr;
 	
 	// Start the SSL Handshake process
-	
+    //开始SSL握手过程
 	[self ssl_continueSSLHandshake];
 }
 
@@ -7422,6 +7463,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	// errSSLPeerBadCert SSL error.
 	// Otherwise, the return value indicates an error code.
 	
+    // 开始握手
 	OSStatus status = SSLHandshake(sslContext);
 	lastSSLHandshakeError = status;
 	
@@ -7436,6 +7478,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		
 		__strong id<GCDAsyncSocketDelegate> theDelegate = delegate;
 
+        // 握手成功，代理回调出去
 		if (delegateQueue && [theDelegate respondsToSelector:@selector(socketDidSecure:)])
 		{
 			dispatch_async(delegateQueue, ^{ @autoreleasepool {
@@ -7481,6 +7524,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 				__strong GCDAsyncSocket *strongSelf = weakSelf;
 				if (strongSelf)
 				{
+                    // 已经处理完了证书校验，尝试去重新握手
 					[strongSelf ssl_shouldTrustPeer:shouldTrust stateIndex:aStateIndex];
 				}
 			}});
@@ -7493,7 +7537,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		if (delegateQueue && [theDelegate respondsToSelector:@selector(socket:didReceiveTrust:completionHandler:)])
 		{
 			dispatch_async(delegateQueue, ^{ @autoreleasepool {
-			
+                // 代理调出去，需要信任，成功以后执行 comletionHandler 这个block，会再次进行握手
 				[theDelegate socket:self didReceiveTrust:trust completionHandler:comletionHandler];
 			}});
 		}
@@ -7544,6 +7588,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	// Increment stateIndex to ensure completionHandler can only be called once.
 	stateIndex++;
 	
+    // 已经被信任了，再次握手
 	if (shouldTrust)
 	{
         NSAssert(lastSSLHandshakeError == errSSLPeerAuthCompleted, @"ssl_shouldTrustPeer called when last error is %d and not errSSLPeerAuthCompleted", (int)lastSSLHandshakeError);
@@ -7616,7 +7661,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		[self closeWithError:[self otherError:msg]];
 		return;
 	}
-	
+	// 暂停读写source
 	[self suspendReadSource];
 	[self suspendWriteSource];
 	
@@ -7626,18 +7671,19 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	
 	flags |=  kUsingCFStreamForTLS;
 	
+    // 重新创建读写source
 	if (![self createReadAndWriteStream])
 	{
 		[self closeWithError:[self otherError:@"Error in CFStreamCreatePairWithSocket"]];
 		return;
 	}
-	
+	// 这次要将 ReadWrite 包含进去
 	if (![self registerForStreamCallbacksIncludingReadWrite:YES])
 	{
 		[self closeWithError:[self otherError:@"Error in CFStreamSetClient"]];
 		return;
 	}
-	
+	// 重新加入到runloop中
 	if (![self addStreamsToRunLoop])
 	{
 		[self closeWithError:[self otherError:@"Error in CFStreamScheduleWithRunLoop"]];
@@ -7652,7 +7698,8 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 	
 	// Getting an error concerning kCFStreamPropertySSLSettings ?
 	// You need to add the CFNetwork framework to your iOS application.
-	
+	// 将设置设置到读写源中
+    
 	BOOL r1 = CFReadStreamSetProperty(readStream, kCFStreamPropertySSLSettings, tlsSettings);
 	BOOL r2 = CFWriteStreamSetProperty(writeStream, kCFStreamPropertySSLSettings, tlsSettings);
 	
@@ -7680,7 +7727,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 		[self closeWithError:[self otherError:@"Error in CFStreamSetProperty"]];
 		return;
 	}
-	
+	// 重新打开源
 	if (![self openStreams])
 	{
 		[self closeWithError:[self otherError:@"Error in CFStreamOpen"]];
@@ -8123,7 +8170,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	if ((readStatus == kCFStreamStatusNotOpen) || (writeStatus == kCFStreamStatusNotOpen))
 	{
 		LogVerbose(@"Opening read and write stream...");
-		
+		// 开启读写流了
 		BOOL r1 = CFReadStreamOpen(readStream);
 		BOOL r2 = CFWriteStreamOpen(writeStream);
 		
