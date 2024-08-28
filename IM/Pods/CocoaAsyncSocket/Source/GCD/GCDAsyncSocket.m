@@ -5047,6 +5047,7 @@ enum GCDAsyncSocketConfig
 		
 		// Requested CFStream, rather than SecureTransport, for TLS (via GCDAsyncSocketUseCFStreamForTLS)
 		
+        // 如果使用的是 CFStream 方式，则判断一下 readStream 中是否有可读内容
 		estimatedBytesAvailable = 0;
 		if ((flags & kSecureSocketHasBytesAvailable) && CFReadStreamHasBytesAvailable(readStream))
 			hasBytesAvailable = YES;
@@ -5058,7 +5059,8 @@ enum GCDAsyncSocketConfig
 	else
 	{
 		estimatedBytesAvailable = socketFDBytesAvailable;
-		
+
+        // 处于 ssl/tsl 模式
 		if (flags & kSocketSecure)
 		{
 			// There are 2 buffers to be aware of here.
@@ -5074,7 +5076,22 @@ enum GCDAsyncSocketConfig
 			// But it's non-optimal to do a bunch of small reads from the BSD socket.
 			// So our SSLReadFunction reads all available data from the socket (optimizing the sys call)
 			// and may store excess in the sslPreBuffer.
+            
+            /*
+             •    SecureTransport 是一个TLS/SSL安全层，它在TCP之上工作，为数据传输提供加密和安全性。在使用SecureTransport时，数据从TCP层传输到应用程序，需要经过加密和解密的处理。
+             •    为了进行安全通信，应用程序通过调用SecureTransport的API请求数据。当应用程序请求读取数据时，SecureTransport API会进一步调用一个自定义的读取函数，这个函数负责从底层的BSD socket读取数据。
+             2.    数据流动过程：
+             •    请求读取数据：应用程序请求读取数据时，调用SecureTransport的API。
+             •    SecureTransport调用自定义读取函数：SecureTransport API不会直接访问底层的socket，而是通过一个自定义的SSLReadFunction函数来读取数据。
+             •    自定义读取函数处理数据：SSLReadFunction从BSD socket读取数据，但这些数据是加密的。函数读取到加密数据后，将其返回给SecureTransport。
+             •    SecureTransport解密数据：SecureTransport收到加密数据后，对其进行解密，然后将解密后的数据返回给应用程序。
+             3.    缓冲区的作用：
+             •    第一个缓冲区：是由应用程序创建的，称为sslPreBuffer。这个缓冲区的作用是优化数据读取操作。因为SecureTransport往往请求少量的数据（这与通过TCP流传输的小型加密数据包有关），如果每次都直接从BSD socket读取少量数据，效率很低。为了解决这个问题，SSLReadFunction会一次性从socket读取尽可能多的数据，并将多余的数据存储在sslPreBuffer中，以供后续读取需求。
+             •    第二个缓冲区：位于SecureTransport内部。当SecureTransport解密数据时，如果解密后的数据量超出了应用程序当前请求的量，SecureTransport会将多余的数据存储在其内部缓冲区中，以便下次请求时直接使用
+             
+             */
 			
+            // 这里先获取 sslPreBuffer 中可读的数据大小
 			estimatedBytesAvailable += [sslPreBuffer availableBytes];
 			
 			// The second buffer is within SecureTransport.
@@ -5088,8 +5105,25 @@ enum GCDAsyncSocketConfig
 			// From the documentation:
 			// 
 			// "This function does not block or cause any low-level read operations to occur."
+            
+            /*
+             1.    背景：
+                 •    当通过TCP流传输数据时，这些数据是加密的。为了确保数据的安全性，SecureTransport会对这些加密的数据包进行解密。
+                 •    解密操作需要完整的加密数据包才能完成。SecureTransport将从TCP流中读取的加密数据解密，然后将解密后的数据传递给应用程序。
+                 2.    SecureTransport内部的第二个缓冲区：
+                 •    加密数据包的解密：如注释所述，SecureTransport需要完整的加密数据包才能进行解密。如果整个数据包在解密后产生了X字节的数据，而应用程序只请求了X/2字节的数据，那么SecureTransport必须处理这种不匹配情况。
+                 •    缓冲区的作用：当应用程序请求的数据量小于解密后的数据量时，多余的解密数据会被存储在SecureTransport内部的缓冲区中。这意味着应用程序在下次请求读取数据时，SecureTransport可以直接从这个缓冲区提供剩余的数据，而不需要再次解密或读取TCP流。
+                 3.    SSLGetBufferedReadSize函数的作用：
+                 •    获取内部缓冲区的大小：SSLGetBufferedReadSize是一个SecureTransport API函数，用于获取SecureTransport内部缓冲区中存储的解密数据的大小。这一函数对于应用程序了解当前可以读取的数据量非常有用。
+                 •    非阻塞操作：重要的是，这个函数不会阻塞调用，也不会触发任何底层读取操作。这意味着调用SSLGetBufferedReadSize不会影响应用程序的性能或导致额外的网络延迟。
+             */
+            
+            // SecureTransport 内部的解密过程完全由 SecureTransport 自己完成
 			
 			size_t sslInternalBufSize = 0;
+            
+            // 所以这里只是获取如果没有的话，只是获取sslContext中可读已解密的数据size
+            
 			SSLGetBufferedReadSize(sslContext, &sslInternalBufSize);
 			
 			estimatedBytesAvailable += sslInternalBufSize;
@@ -5098,6 +5132,7 @@ enum GCDAsyncSocketConfig
 		hasBytesAvailable = (estimatedBytesAvailable > 0);
 	}
 	
+    // 如果没有可读信息
 	if ((hasBytesAvailable == NO) && ([preBuffer availableBytes] == 0))
 	{
 		LogVerbose(@"No data available to read...");
@@ -5109,11 +5144,22 @@ enum GCDAsyncSocketConfig
 			// Need to wait for readSource to fire and notify us of
 			// available data in the socket's internal read buffer.
 			
+            // 如果是非 CFStream ，则恢复读取 readSource
 			[self resumeReadSource];
 		}
 		return;
 	}
+    
+    /*
+     这段代码处理了TLS/SSL握手期间的读取操作管理。它首先检查是否正在进行TLS/SSL握手，如果是，则进一步处理握手过程中需要的操作。
+
+         1.    如果正在等待写操作（kStartingWriteTLS）：并且使用了SecureTransport，且遇到errSSLWouldBlock错误，则会继续SSL握手。
+         2.    如果没有写操作等待：则程序会处理读取源的暂停，以防止读取源不断触发。
+
+     这段代码确保在TLS/SSL握手期间正确管理读取和写入操作，防止不必要的资源浪费，同时确保握手过程能够顺利完成。
+     */
 	
+    // 当前属于正在握手的环节
 	if (flags & kStartingReadTLS)
 	{
 		LogVerbose(@"Waiting for SSL/TLS handshake to complete");
@@ -5138,7 +5184,7 @@ enum GCDAsyncSocketConfig
 			if (![self usingCFStreamForTLS])
 			{
 				// Suspend the read source or else it will continue to fire nonstop.
-				
+				// 这里会先将 ReadSource 挂起··如果不暂停，读取源可能会不断触发，导致不必要的资源消耗和处理。
 				[self suspendReadSource];
 			}
 		}
@@ -5153,7 +5199,7 @@ enum GCDAsyncSocketConfig
 	
 	// 
 	// STEP 1 - READ FROM PREBUFFER
-	// 
+	// 先从缓冲区 PREBUFFER 读取
 	
 	if ([preBuffer availableBytes] > 0)
 	{
@@ -5168,56 +5214,80 @@ enum GCDAsyncSocketConfig
 		if (currentRead->term != nil)
 		{
 			// Read type #3 - read up to a terminator
-			
+			// 从 preBuffer 读取标记为 currentRead->term 为止，不能超过 preBuffer 的最大，返回可读取的大小
 			bytesToCopy = [currentRead readLengthForTermWithPreBuffer:preBuffer found:&done];
 		}
 		else
 		{
 			// Read type #1 or #2
 			
+            /*
+            * 对于没有设置终止符的读取包，它返回可以读取的数据量，而不会超过 readLength 或 maxLength。
+            * 给定的参数表示估计在套接字上可用的字节数，这在计算过程中会被考虑。给定的提示必须大于零。
+             */
+            
+            // 返回了 currentRead 可以读区的数量
 			bytesToCopy = [currentRead readLengthForNonTermWithHint:[preBuffer availableBytes]];
 		}
 		
 		// Make sure we have enough room in the buffer for our read.
-		
+		// 确保能放的下··不能就扩容
 		[currentRead ensureCapacityForAdditionalDataOfLength:bytesToCopy];
 		
 		// Copy bytes from prebuffer into packet buffer
 		
-		uint8_t *buffer = (uint8_t *)[currentRead->buffer mutableBytes] + currentRead->startOffset +
-		                                                                  currentRead->bytesDone;
+        // 
+        
+        /**
+         •    创建指向目标缓冲区的指针：
+         •    uint8_t *buffer：定义一个指向无符号8位整数（即字节）的指针。这个指针将用于访问目标缓冲区中的位置。
+         •    (uint8_t *)[currentRead->buffer mutableBytes]：[currentRead->buffer mutableBytes] 返回一个指向当前读取操作的目标缓冲区（currentRead->buffer）的可变字节指针。此指针被强制转换为 uint8_t * 类型，以便可以按字节操作。
+         •    currentRead->startOffset：这是当前读取操作在目标缓冲区中的起始偏移量。它表示应当将数据写入缓冲区的起始位置。
+         •    currentRead->bytesDone：表示在当前读取操作中已经完成的字节数。这个值用于计算下一个要写入的缓冲区位置。
+         •    指针运算：
+         •    buffer 指针的最终值是目标缓冲区（currentRead->buffer）的起始地址，加上 startOffset 和 bytesDone。这意味着数据将被写入缓冲区中尚未使用的部分，从 startOffset + bytesDone 位置开始。
+         */
+        
+        // buffer 是currentRead 上可读的起始位置的计算
+        
+		uint8_t *buffer = (uint8_t *)[currentRead->buffer mutableBytes] + currentRead->startOffset + currentRead->bytesDone;
 		
+        //  从 preBuffer的 readBuffer 中，拷贝数据，数据大小是bytesToCopy ，到buffer 所指的内存地址上
+        
 		memcpy(buffer, [preBuffer readBuffer], bytesToCopy);
 		
 		// Remove the copied bytes from the preBuffer
+        // 标记已读内容
 		[preBuffer didRead:bytesToCopy];
 		
 		LogVerbose(@"copied(%lu) preBufferLength(%zu)", (unsigned long)bytesToCopy, [preBuffer availableBytes]);
 		
 		// Update totals
 		
+        // 当前已读
 		currentRead->bytesDone += bytesToCopy;
 		totalBytesReadForCurrentRead += bytesToCopy;
 		
 		// Check to see if the read operation is done
-		
+        //判断是不是读完了
 		if (currentRead->readLength > 0)
 		{
 			// Read type #2 - read a specific length of data
 			
 			done = (currentRead->bytesDone == currentRead->readLength);
 		}
+        //判断界限标记
 		else if (currentRead->term != nil)
 		{
 			// Read type #3 - read up to a terminator
 			
 			// Our 'done' variable was updated via the readLengthForTermWithPreBuffer:found: method
-			
+            //如果没做完，且读的最大长度大于0，去判断是否溢出
 			if (!done && currentRead->maxLength > 0)
 			{
 				// We're not done and there's a set maxLength.
 				// Have we reached that maxLength yet?
-				
+                //如果已读的大小大于最大的大小，则报溢出错误
 				if (currentRead->bytesDone >= currentRead->maxLength)
 				{
 					error = [self readMaxedOutError];
@@ -5231,7 +5301,7 @@ enum GCDAsyncSocketConfig
 			// We're done as soon as
 			// - we've read all available data (in prebuffer and socket)
 			// - we've read the maxLength of read packet.
-			
+            // 判断已读大小和最大大小是否相同，相同则读完
 			done = ((currentRead->maxLength > 0) && (currentRead->bytesDone == currentRead->maxLength));
 		}
 		
@@ -5239,11 +5309,13 @@ enum GCDAsyncSocketConfig
 	
 	// 
 	// STEP 2 - READ FROM SOCKET
-	// 
+	//
+    // 这里是直接从 SOCKET 来读取
 	
 	BOOL socketEOF = (flags & kSocketHasReadEOF) ? YES : NO;  // Nothing more to read via socket (end of file)
 	BOOL waiting   = !done && !error && !socketEOF && !hasBytesAvailable; // Ran out of data, waiting for more
 	
+    //如果没完成，且没错，没读到结尾，有可读数据
 	if (!done && !error && !socketEOF && hasBytesAvailable)
 	{
 		NSAssert(([preBuffer availableBytes] == 0), @"Invalid logic");
@@ -5252,8 +5324,10 @@ enum GCDAsyncSocketConfig
 		uint8_t *buffer = NULL;
 		size_t bytesRead = 0;
 		
+        // 当前消息处于 ssl/tsl 加密
 		if (flags & kSocketSecure)
 		{
+            // 如果使用的是 CFStream 方式
 			if ([self usingCFStreamForTLS])
 			{
 //				#if TARGET_OS_IPHONE
@@ -5262,6 +5336,7 @@ enum GCDAsyncSocketConfig
 				
 				NSUInteger defaultReadLength = (1024 * 32);
 				
+                // 获取可以读区的大小，并且得知是否需要先将数据写入缓冲区
 				NSUInteger bytesToRead = [currentRead optimalReadLengthWithDefault:defaultReadLength
 				                                                   shouldPreBuffer:&readIntoPreBuffer];
 				
@@ -5270,23 +5345,25 @@ enum GCDAsyncSocketConfig
 				// We are either reading directly into the currentRead->buffer,
 				// or we're reading into the temporary preBuffer.
 				
+                // 如果需要先写入缓冲区
 				if (readIntoPreBuffer)
-				{
+				{   // 先扩容
 					[preBuffer ensureCapacityForWrite:bytesToRead];
-					
+					// 获取写入的指针地址
 					buffer = [preBuffer writeBuffer];
 				}
 				else
 				{
+                    // 看看能不能塞下，塞不下也扩容
 					[currentRead ensureCapacityForAdditionalDataOfLength:bytesToRead];
-					
+					// 或许直接可以写下的指针地址
 					buffer = (uint8_t *)[currentRead->buffer mutableBytes]
 					       + currentRead->startOffset
 					       + currentRead->bytesDone;
 				}
 				
 				// Read data into buffer
-				
+				// 通过 CFReadStreamRead ，从 readStream 读取 bytesToRead 大小到 buffer 指针中
 				CFIndex result = CFReadStreamRead(readStream, buffer, (CFIndex)bytesToRead);
 				LogVerbose(@"CFReadStreamRead(): result = %i", (int)result);
 				
@@ -5358,6 +5435,7 @@ enum GCDAsyncSocketConfig
 					       + currentRead->bytesDone;
 				}
 				
+                // 和上面相似，
 				// The documentation from Apple states:
 				// 
 				//     "a read operation might return errSSLWouldBlock,
@@ -5366,6 +5444,7 @@ enum GCDAsyncSocketConfig
 				// However, starting around 10.7, the function will sometimes return noErr,
 				// even if it didn't read as much data as requested. So we need to watch out for that.
 				
+                // 一直从 sslContext 中读取数据，指到读完为止，这里加个while 循环读取，是因为苹果说 SSLRead 返回的数据可能小于我们想要读区的数据
 				OSStatus result;
 				do
 				{
@@ -5380,7 +5459,8 @@ enum GCDAsyncSocketConfig
 					
 				} while ((result == noErr) && (bytesRead < bytesToRead));
 				
-				
+                
+				// 读完以后的错误判断
 				if (result != noErr)
 				{
 					if (result == errSSLWouldBlock)
@@ -5464,8 +5544,12 @@ enum GCDAsyncSocketConfig
 			}
 			
 			// Read data into buffer
+            
+            // 逻辑相同
 			
 			int socketFD = (socket4FD != SOCKET_NULL) ? socket4FD : (socket6FD != SOCKET_NULL) ? socket6FD : socketUN;
+            
+            // 直接通过 read 从 socketFD 读取数据
 			
 			ssize_t result = read(socketFD, buffer, (size_t)bytesToRead);
 			LogVerbose(@"read from socket = %i", (int)result);
@@ -5513,6 +5597,7 @@ enum GCDAsyncSocketConfig
 		if (bytesRead > 0)
 		{
 			// Check to see if the read operation is done
+            // 检查读取操作是否完成
 			
 			if (currentRead->readLength > 0)
 			{
@@ -5524,6 +5609,8 @@ enum GCDAsyncSocketConfig
 				
 				currentRead->bytesDone += bytesRead;
 				totalBytesReadForCurrentRead += bytesRead;
+                
+                // 判断是否读取完成
 				
 				done = (currentRead->bytesDone == currentRead->readLength);
 			}
@@ -5531,29 +5618,38 @@ enum GCDAsyncSocketConfig
 			{
 				// Read type #3 - read up to a terminator
 				
+                // 需要从缓存区读取数据到 currentRead 里面
 				if (readIntoPreBuffer)
 				{
 					// We just read a big chunk of data into the preBuffer
-					
+					// 更新已读数据
 					[preBuffer didWrite:bytesRead];
+                    
 					LogVerbose(@"read data into preBuffer - preBuffer.length = %zu", [preBuffer availableBytes]);
 					
 					// Search for the terminating sequence
-					
+					// 去 preBuffer 里面找下终止符 
+//                    对于设置了终止符的读取包，这段代码返回从给定的预缓冲区中可以读取的数据量，不会超过终止符或最大长度。
+//                    假定终止符尚未被读取。
+                    
 					NSUInteger bytesToCopy = [currentRead readLengthForTermWithPreBuffer:preBuffer found:&done];
+                    
+                    
 					LogVerbose(@"copying %lu bytes from preBuffer", (unsigned long)bytesToCopy);
 					
 					// Ensure there's room on the read packet's buffer
-					
+					// 扩充
 					[currentRead ensureCapacityForAdditionalDataOfLength:bytesToCopy];
 					
 					// Copy bytes from prebuffer into read buffer
 					
+                    // 获取新数据写入的指针地址
 					uint8_t *readBuf = (uint8_t *)[currentRead->buffer mutableBytes] + currentRead->startOffset
 					                                                                 + currentRead->bytesDone;
-					
+					// copy 过来
 					memcpy(readBuf, [preBuffer readBuffer], bytesToCopy);
 					
+                    // 更新已读数据
 					// Remove the copied bytes from the prebuffer
 					[preBuffer didRead:bytesToCopy];
 					LogVerbose(@"preBuffer.length = %zu", [preBuffer availableBytes]);
@@ -5583,6 +5679,8 @@ enum GCDAsyncSocketConfig
 					}
 					else if (overflow > 0)
 					{
+                        // 在 currentRead 数据中找到终止符，但是后面还有数据，需要将溢出数据，转移到 preBuffer 中，
+                        
 						// The term was found within the data that we read,
 						// and there are extra bytes that extend past the end of the term.
 						// We need to move these excess bytes out of the read packet and into the prebuffer.
@@ -5631,6 +5729,8 @@ enum GCDAsyncSocketConfig
 			{
 				// Read type #1 - read all available data
 				
+                // 处理没有特定长度或终止符的读取操作：
+                
 				if (readIntoPreBuffer)
 				{
 					// We just read a chunk of data into the preBuffer
@@ -5651,6 +5751,7 @@ enum GCDAsyncSocketConfig
 					uint8_t *readBuf = (uint8_t *)[currentRead->buffer mutableBytes] + currentRead->startOffset
 					                                                                 + currentRead->bytesDone;
 					
+                    // 从 preBuffer 读取到 readBuf 中
 					memcpy(readBuf, [preBuffer readBuffer], bytesRead);
 					
 					// Remove the copied bytes from the prebuffer
@@ -5685,6 +5786,7 @@ enum GCDAsyncSocketConfig
 	
 	// Check to see if we're done, or if we've made progress
 	
+    // 读取完成
 	if (done)
 	{
 		[self completeCurrentRead];
