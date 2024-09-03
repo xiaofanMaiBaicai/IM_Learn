@@ -5160,6 +5160,20 @@ enum GCDAsyncSocketConfig
      */
 	
     // 当前属于正在握手的环节
+    
+    /*
+     
+     这段代码是在 SSL/TLS 握手过程中触发的，具体来说，当 CocoaAsyncSocket 检测到正在进行 SSL/TLS 握手时，会执行这段逻辑。下面是代码可能触发的场景：
+
+         1.    正在进行 SSL/TLS 握手 (flags & kStartingReadTLS)：代码块最开始的判断条件 flags & kStartingReadTLS 用于检查是否已经进入了 SSL/TLS 握手的读取阶段。如果是，它意味着当前连接正在执行 SSL/TLS 握手，正在等待从对端接收数据。
+         2.    同时处理写操作 (flags & kStartingWriteTLS)：如果 flags & kStartingWriteTLS 也被设置，说明此时同时在处理写操作。这是因为在握手过程中，既需要发送数据也需要接收数据。代码会检查是否正在使用 SecureTransport 处理 TLS，并且最后一次 SSL 握手返回的错误是否是 errSSLWouldBlock，这通常意味着握手正在等待更多的数据到达以继续。
+         3.    继续 SSL/TLS 握手 ([self ssl_continueSSLHandshake])：如果上面的条件成立，意味着已经有数据到达，可以继续 SSL/TLS 握手过程，因此调用 [self ssl_continueSSLHandshake] 来继续处理。
+         4.    等待写入队列清空：如果没有正在处理写操作（即 flags & kStartingWriteTLS 不成立），则表示握手过程尚未完成，仍然需要等待写入队列清空，以便开始 SSL/TLS 过程。
+         5.    挂起读取源 ([self suspendReadSource])：在这种情况下，如果没有使用 CFStream 处理 TLS，则会调用 [self suspendReadSource] 暂停读取源。这是为了避免在握手尚未完成时，读取源不断触发，造成不必要的资源消耗。
+     
+     */
+    
+    
 	if (flags & kStartingReadTLS)
 	{
 		LogVerbose(@"Waiting for SSL/TLS handshake to complete");
