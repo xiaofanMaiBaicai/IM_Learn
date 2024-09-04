@@ -5662,6 +5662,8 @@ enum GCDAsyncSocketConfig
 					uint8_t *readBuf = (uint8_t *)[currentRead->buffer mutableBytes] + currentRead->startOffset
 					                                                                 + currentRead->bytesDone;
 					// copy 过来
+                    // 这里就是直接从 preBuffer 拷贝到 readBuf里了，上面的都是先拷贝到preBuffer缓冲区或者是直接拷贝到 readBuf。
+                    
 					memcpy(readBuf, [preBuffer readBuffer], bytesToCopy);
 					
                     // 更新已读数据
@@ -5718,7 +5720,7 @@ enum GCDAsyncSocketConfig
 						currentRead->bytesDone += underflow;
 						totalBytesReadForCurrentRead += underflow;
 						done = YES;
-					}
+					 }
 					else
 					{
 						// The term was not found within the data that we read.
