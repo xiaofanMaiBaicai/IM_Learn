@@ -4866,6 +4866,7 @@ enum GCDAsyncSocketConfig
 			
 			uint8_t *buffer = [preBuffer writeBuffer];
 			
+            // 这里是将数据从 readStream 中，将数据读到了缓冲区，并且已经是解密完成的
             // 从 readStream 中读取 defaultBytesToRead 大小的数据到 buffer 中，并且已经解密
 			CFIndex result = CFReadStreamRead(readStream, buffer, defaultBytesToRead);
 			LogVerbose(@"%@ - CFReadStreamRead(): result = %i", THIS_METHOD, (int)result);
@@ -4940,7 +4941,7 @@ enum GCDAsyncSocketConfig
 			
             // estimatedBytesAvailable 需要读取的
             // bytesRead 实际读取的
-            // 从sslContext中读取数据，解密，并写入到buffer中，
+            // 从sslContext中读取数据，解密，并写入到buffer中，，这个方法涉及了解密
 			OSStatus result = SSLRead(sslContext, buffer, (size_t)estimatedBytesAvailable, &bytesRead);
 			LogVerbose(@"%@ - read from secure socket = %u", THIS_METHOD, (unsigned)bytesRead);
 			
