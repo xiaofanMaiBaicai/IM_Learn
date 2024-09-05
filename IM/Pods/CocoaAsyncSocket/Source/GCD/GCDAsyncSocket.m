@@ -4968,6 +4968,16 @@ enum GCDAsyncSocketConfig
 
 - (void)doReadData
 {
+    
+    /*
+     这段代码有进行优化，主要通过以下几点避免了重复读取的性能损耗：
+
+         1.    暂停 readSource：当检测到有数据可读时，代码会主动暂停 readSource，以避免其反复触发读取操作。这避免了由于底层 GCD 机制频繁触发回调，导致 doReadData 的多次调用。
+         2.    SSL/TLS 数据解密优化：在 SSL/TLS 模式下，代码通过提前解密缓冲数据，减少了后续用户请求时的等待时间。此外，代码会尽可能通过一次调用读取大量解密数据，减少了系统调用的次数。
+         3.    判断是否有数据可读：代码会根据当前数据缓冲区的可用性，决定是否继续读取数据，避免在没有数据可读时无效调用读取操作。
+     */
+    
+    
 	LogTrace();
 	
 	// This method is called on the socketQueue.
@@ -8047,11 +8057,20 @@ static void CFReadStreamCallback (CFReadStreamRef stream, CFStreamEventType type
 				if (asyncSocket->readStream != stream)
 					return_from_block;
 				
+                /*
+                这行代码检查两个标志位 kStartingReadTLS 和 kStartingWriteTLS 是否都已设置。
+                这些标志位表示正在开始读和写的 TLS（SSL）握手过程。即，当两个标志位都设置时，意味着套接字正处于 TLS 握手过程中。
+                 */
 				if ((asyncSocket->flags & kStartingReadTLS) && (asyncSocket->flags & kStartingWriteTLS))
 				{
 					// If we set kCFStreamPropertySSLSettings before we opened the streams, this might be a lie.
 					// (A callback related to the tcp stream, but not to the SSL layer).
 					
+                    /*
+                     读取的数据。
+                         •    如果 readStream 中有数据可读，这意味着可以进行进一步的握手处理，因此设置标志位 kSecureSocketHasBytesAvailable，表示 TLS 连接已安全，并调用 [asyncSocket cf_finishSSLHandshake] 来完成 SSL 握手过程。
+                     cf_finishSSLHandshake 是一个关键函数，负责完成 TLS 握手的最后阶段，它可能会根据当前的握手状态继续处理 SSL 证书交换、加密设置等过程，确保 SSL 连接成功建立。
+                     */
 					if (CFReadStreamHasBytesAvailable(asyncSocket->readStream))
 					{
 						asyncSocket->flags |= kSecureSocketHasBytesAvailable;
@@ -8060,6 +8079,7 @@ static void CFReadStreamCallback (CFReadStreamRef stream, CFStreamEventType type
 				}
 				else
 				{
+                    // 直接去读取
 					asyncSocket->flags |= kSecureSocketHasBytesAvailable;
 					[asyncSocket doReadData];
 				}
@@ -8196,6 +8216,11 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	LogVerbose(@"Creating read and write stream...");
 	
     // 创建一个读写流，但此方法被标记为已过期
+    // CFStreamCreatePairWithSocket(NULL, (CFSocketNativeHandle)socketFD, &readStream, &writeStream) 是一个 Core Foundation API，用于创建与一个本地套接字相关联的读写流。它通常用于网络编程，通过将本地的 Socket 文件描述符与输入/输出流关联起来，方便开发者通过流来进行数据的读写操作
+    // 如果没有使用 CFStream 来处理加解密的话，readStream writeStream 只起到了 kCFStreamEventErrorOccurred 与 kCFStreamEventEndEncountered 的作用，
+    // 如果 是使用 CFStream 的话，还涉及数据到达的回调。
+    
+    
 	CFStreamCreatePairWithSocket(NULL, (CFSocketNativeHandle)socketFD, &readStream, &writeStream);
 	
 	// The kCFStreamPropertyShouldCloseNativeSocket property should be false by default (for our case).
@@ -8247,7 +8272,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	
     // kCFStreamEventErrorOccurred 流操作过程中发生了错误
     // kCFStreamEventEndEncountered 流已经到达了文件、数据或连接的末尾
-	CFOptionFlags readStreamEvents = kCFStreamEventErrorOccurred | kCFStreamEventEndEncountered;
+    CFOptionFlags readStreamEvents = kCFStreamEventErrorOccurred | kCFStreamEventEndEncountered;
 	if (includeReadWrite)
         // kCFStreamEventHasBytesAvailable 流中有可供读取的字节
 		readStreamEvents |= kCFStreamEventHasBytesAvailable;
